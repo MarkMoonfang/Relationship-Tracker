@@ -23,3 +23,9 @@ state_schema:
       relationshipLevel:
         type: integer
         default: 0
+
+github_path: 'https://github.com/MarkMoonfang/Relationship-Tracker'
+
+
+extension_id: 'relationship-tracker-3161b4156d42'
+
