@@ -182,42 +182,23 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 position: 'relative',
                 width: '100%',
                 height: '100%',
-                overflow: 'hidden',
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                fontFamily: 'sans-serif',
+                padding: '1rem',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
             }}
         >
-            <div
-                style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    height: '100%',
-                    backgroundColor: '#ffffff',
-                    zIndex: 0
-                }}
-            />
-            <div
-                style={{
-                    position: 'relative',
-                    zIndex: 1,
-                    color: '#000000',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    height: '100%',
-                    fontFamily: 'sans-serif',
-                    padding: '1rem'
-                }}
-            >
-                <h2>Relationship Tracker</h2>
-                <p>Key: {this.myInternalState['someKey']}</p>
-                <p>
-                    There {this.myInternalState['numUsers'] === 1 ? 'is' : 'are'}{' '}
-                    {this.myInternalState['numUsers']} human{this.myInternalState['numUsers'] !== 1 ? 's' : ''} and{' '}
-                    {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
-                </p>
-            </div>
+            <h2>Relationship Tracker</h2>
+            <p>Key: {this.myInternalState['someKey']}</p>
+            <p>
+                There {this.myInternalState['numUsers'] === 1 ? 'is' : 'are'}{' '}
+                {this.myInternalState['numUsers']} human{this.myInternalState['numUsers'] !== 1 ? 's' : ''} and{' '}
+                {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
+            </p>
         </div>
     );
 } //<--- end of render() --->
