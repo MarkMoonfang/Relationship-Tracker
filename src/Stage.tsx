@@ -195,7 +195,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             display: 'grid',
             alignItems: 'stretch'
         }}>
-            <div>Hello World! I'm an empty stage! With {this.myInternalState['someKey']}!</div>
+            <div>Hello World! I'm Relationship Tracker! With {this.myInternalState['someKey']}!</div>
             <div>There is/are/were {this.myInternalState['numChars']} character(s)
                 and {this.myInternalState['numUsers']} human(s) here.
             </div>
