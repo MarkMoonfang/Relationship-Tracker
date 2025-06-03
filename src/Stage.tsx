@@ -177,21 +177,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
   render(): ReactElement {
     return (
-        <div
-            style={{
-                position: 'relative',
-                width: '100%',
-                height: '100%',
-                backgroundColor: '#ffffff',
-                color: '#000000',
-                fontFamily: 'sans-serif',
-                padding: '1rem',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'center',
-                alignItems: 'center',
-            }}
-        >
+        <div className="your-stage-wrapper">
             <h2>Relationship Tracker</h2>
             <p>Key: {this.myInternalState['someKey']}</p>
             <p>
