@@ -185,7 +185,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 flexDirection: 'column',
                 justifyContent: 'center',
                 alignItems: 'center',
-                backgroundColor: '#ffffff', // <--- Force white background
+                backgroundColor: '#ffffff !important', // <--- Force white background
                 color: '#000000',           // <--- Ensure readable text
                 fontFamily: 'sans-serif',
                 padding: '1rem'
