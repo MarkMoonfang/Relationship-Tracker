@@ -175,31 +175,24 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     }
 
 
-    render(): ReactElement {
-        /***
-         There should be no "work" done here. Just returning the React element to display.
-         If you're unfamiliar with React and prefer video, I've heard good things about
-         @link https://scrimba.com/learn/learnreact but haven't personally watched/used it.
+  render(): ReactElement {
+  return (
+    <div style={{
+      padding: '1rem',
+      background: 'white',
+      color: 'black',
+      fontFamily: 'sans-serif',
+      border: '1px solid #ccc',
+      borderRadius: '8px',
+      maxWidth: '300px',
+      margin: '1rem auto'
+    }}>
+      <strong>Stage: Relationship Tracker</strong>
+      <p>Characters in chat: {this.myInternalState?.['numChars'] ?? '?'}</p>
+      <p>Humans in chat: {this.myInternalState?.['numUsers'] ?? '?'}</p>
+      <p>Key: {this.myInternalState?.['someKey'] ?? '(none)'}</p>
+    </div>
+  );
+} // <--- end of render() --->
 
-         For creating 3D and game components, react-three-fiber
-           @link https://docs.pmnd.rs/react-three-fiber/getting-started/introduction
-           and the associated ecosystem of libraries are quite good and intuitive.
-
-         Cuberun is a good example of a game built with them.
-           @link https://github.com/akarlsten/cuberun (Source)
-           @link https://cuberun.adamkarlsten.com/ (Demo)
-         ***/
-        return <div style={{
-            width: '100vw',
-            height: '100vh',
-            display: 'grid',
-            alignItems: 'stretch'
-        }}>
-            <div>Hello World! I'm Relationship Tracker! With {this.myInternalState['someKey']}!</div>
-            <div>There is/are/were {this.myInternalState['numChars']} character(s)
-                and {this.myInternalState['numUsers']} human(s) here.
-            </div>
-        </div>;
-    }
-
-}
+} // <--- end of class Stage --->
