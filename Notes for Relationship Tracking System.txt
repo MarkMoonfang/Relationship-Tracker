@@ -1,0 +1,10 @@
+Range	Meaning	Behavior
+0–20	Rejection / extreme discomfort	Push character to emotionally back away or become cold
+21–44	Distrust / guarded	Defensive, indirect, emotionally distant
+45–55	Baseline / neutral	Character interacts normally, neutral
+56–74	Mild warmth	Softening tone, hints of openness
+75–89	Strong affection	Trust overrides usual friction
+90–100	Emotional dependence / safety	Character becomes vulnerable, invested
+
+And remember: the rate of change should be slower at extremes, faster at center.
+

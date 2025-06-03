@@ -2,6 +2,11 @@ import {ReactElement} from "react";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
 
+   //Utility: Clamp affection to stay within bounds
+    function clampAffection(value: number): number {
+        return Math.max(0, Math.min(value, 100)); // Clamp between 0 and 100
+    }
+
 /***
  The type that this stage persists message-level state in.
  This is primarily for readability, and not enforced.
@@ -106,74 +111,75 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             this.myInternalState = {...this.myInternalState, ...state};
         }
     }
+    // work-in-progress logic block for the Stage
+    // THis will go insdie the Stage class, in beforePrompt and afterResponse
 
-    async beforePrompt(userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-        /***
-         This is called after someone presses 'send', but before anything is sent to the LLM.
-         ***/
-        const {
-            content,            /*** @type: string
-             @description Just the last message about to be sent. ***/
-            anonymizedId,       /*** @type: string
-             @description An anonymized ID that is unique to this individual
-              in this chat, but NOT their Chub ID. ***/
-            isBot             /*** @type: boolean
-             @description Whether this is itself from another bot, ex. in a group chat. ***/
-        } = userMessage;
-        return {
-            /*** @type null | string @description A string to add to the
-             end of the final prompt sent to the LLM,
-             but that isn't persisted. ***/
-            stageDirections: null,
-            /*** @type MessageStateType | null @description the new state after the userMessage. ***/
-            messageState: {'someKey': this.myInternalState['someKey']},
-            /*** @type null | string @description If not null, the user's message itself is replaced
-             with this value, both in what's sent to the LLM and in the database. ***/
-            modifiedMessage: null,
-            /*** @type null | string @description A system message to append to the end of this message.
-             This is unique in that it shows up in the chat log and is sent to the LLM in subsequent messages,
-             but it's shown as coming from a system user and not any member of the chat. If you have things like
-             computed stat blocks that you want to show in the log, but don't want the LLM to start trying to
-             mimic/output them, they belong here. ***/
-            systemMessage: null,
-            /*** @type null | string @description an error message to show
-             briefly at the top of the screen, if any. ***/
-            error: null,
-            chatState: null,
-        };
+    //MESSAGE-LEVEL STATE
+    //we track only the affection score for now
+
+    // --- BEFORE PROMPT ---
+   async beforePrompt(userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
+    const affectionScore = this.myInternalState['affection'] ?? 50;
+    let stageDirections = null;
+
+    if (affectionScore < 25) {
+        stageDirections = "{{char}} keeps a clear emotional distance from {{user}}, masking distrust behind short or guarded responses.";
+    } else if (affectionScore < 45) {
+        stageDirections = "{{char}} responds warily, showing signs of tension and hesitation around {{user}}.";
+    } else if (affectionScore <= 55) {
+        stageDirections = "{{char}} responds neutrally, neither warm nor cold, but observant of {{user}}'s actions.";
+    } else if (affectionScore <= 74) {
+        stageDirections = "{{char}} shows brief moments of warmth or trust, glancing at {{user}} with softening eyes or a relaxed posture.";
+    } else if (affectionScore <= 89) {
+        stageDirections = "{{char}} treats {{user}} as a trusted companion, responding with vulnerability or emotional openness.";
+    } else {
+        stageDirections = "{{char}} looks to {{user}} with deep emotional reliance, visibly more relaxed and willing to engage closely.";
     }
 
-    async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-        /***
-         This is called immediately after a response from the LLM.
-         ***/
-        const {
-            content,            /*** @type: string
-             @description The LLM's response. ***/
-            anonymizedId,       /*** @type: string
-             @description An anonymized ID that is unique to this individual
-              in this chat, but NOT their Chub ID. ***/
-            isBot             /*** @type: boolean
-             @description Whether this is from a bot, conceivably always true. ***/
-        } = botMessage;
-        return {
-            /*** @type null | string @description A string to add to the
-             end of the final prompt sent to the LLM,
-             but that isn't persisted. ***/
-            stageDirections: null,
-            /*** @type MessageStateType | null @description the new state after the botMessage. ***/
-            messageState: {'someKey': this.myInternalState['someKey']},
-            /*** @type null | string @description If not null, the bot's response itself is replaced
-             with this value, both in what's sent to the LLM subsequently and in the database. ***/
-            modifiedMessage: null,
-            /*** @type null | string @description an error message to show
-             briefly at the top of the screen, if any. ***/
-            error: null,
-            systemMessage: null,
-            chatState: null
-        };
+    return {
+        stageDirections,
+        messageState: { affection: affectionScore },
+        chatState: null,
+        systemMessage: `[Affection: ${affectionScore}]`, // for debugging
+        error: null
+    };
+}
+
+// --- AFTER RESPONSE --- //
+async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
+    const affectionScore = this.myInternalState['affection'] ?? 50;
+    const content = botMessage.content.toLowerCase();
+    let delta = 0;
+    const logs: string[] = [];
+
+    if (content.includes("thank you") || content.includes("i trust you") || content.includes("i feel safe")) {
+        delta += 3; logs.push("+3: expression of trust or gratitude");
+    }
+    if (content.includes("smile") || content.includes("laughs") || content.includes("relaxes")) {
+        delta += 2; logs.push("+2: character relaxed or warm");
+    }
+    if (content.includes("scowl") || content.includes("knife") || content.includes("step back") || content.includes("growl")) {
+        delta -= 3; logs.push("-3: defensive or fearful reaction");
+    }
+    if (content.includes("silent") || content.includes("coldly") || content.includes("suspicious")) {
+        delta -= 2; logs.push("-2: emotional distance");
     }
 
+    // Decay near limits
+    let updated = affectionScore;
+    if (affectionScore >= 90 && delta > 0) delta = 1;
+    if (affectionScore <= 10 && delta < 0) delta = -1;
+
+    updated = clampAffection(affectionScore + delta);
+    this.myInternalState['affection'] = updated; // persist it
+
+    return {
+        messageState: { affection: updated },
+        chatState: null,
+        systemMessage: `[Delta: ${delta} | New: ${updated}]\n${logs.join("\n")}`,
+        error: null
+    };
+}
 
   render(): ReactElement {
     return (

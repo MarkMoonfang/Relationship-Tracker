@@ -1,1 +1,1 @@
-export {Stage as Stage} from "./Stage";
+export {Stage as Stage} from "./Stage"; // src/Stage.tsx
