@@ -176,23 +176,30 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
 
   render(): ReactElement {
-  return (
-    <div style={{
-      padding: '1rem',
-      background: 'white',
-      color: 'black',
-      fontFamily: 'sans-serif',
-      border: '1px solid #ccc',
-      borderRadius: '8px',
-      maxWidth: '300px',
-      margin: '1rem auto'
-    }}>
-      <strong>Stage: Relationship Tracker</strong>
-      <p>Characters in chat: {this.myInternalState?.['numChars'] ?? '?'}</p>
-      <p>Humans in chat: {this.myInternalState?.['numUsers'] ?? '?'}</p>
-      <p>Key: {this.myInternalState?.['someKey'] ?? '(none)'}</p>
-    </div>
-  );
+    return (
+        <div
+            style={{
+                width: '100vw',
+                height: '100vh',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                backgroundColor: '#ffffff', // <--- Force white background
+                color: '#000000',           // <--- Ensure readable text
+                fontFamily: 'sans-serif',
+                padding: '1rem'
+            }}
+        >
+            <h2>Relationship Tracker</h2>
+            <p>Key: {this.myInternalState['someKey']}</p>
+            <p>
+                There {this.myInternalState['numUsers'] === 1 ? 'is' : 'are'}{' '}
+                {this.myInternalState['numUsers']} human{this.myInternalState['numUsers'] !== 1 ? 's' : ''} and{' '}
+                {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
+            </p>
+        </div>
+    );
 } // <--- end of render() --->
 
 } // <--- end of class Stage --->
