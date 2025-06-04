@@ -2,11 +2,6 @@ import {ReactElement} from "react";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
 
-   //Utility: Clamp affection to stay within bounds
-    function clampAffection(value: number): number {
-        return Math.max(0, Math.min(value, 100)); // Clamp between 0 and 100
-    }
-
 /***
  The type that this stage persists message-level state in.
  This is primarily for readability, and not enforced.
@@ -56,7 +51,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
      This is ephemeral in the sense that it isn't persisted to a database,
      but exists as long as the instance does, i.e., the chat page is open.
      ***/
-    myInternalState: {[key: string]: any};
+    myInternalState: {[key: string]: any}; // Initialize as an empty object
+    private charactersMap: { [id: string]: any } = {}; // Initialize as an empty object
+    
 
     constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType>) {
         /***
@@ -67,6 +64,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
          User at @link https://github.com/CharHubAI/chub-stages-ts/blob/main/src/types/user.ts
          ***/
         super(data);
+        this.charactersMap = data.characters; // Assuming characters is passed in the constructor or available in the context
         const {
             characters,         // @type:  { [key: string]: Character }
             users,                  // @type:  { [key: string]: User}
@@ -74,11 +72,14 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             messageState,                           //  @type:  MessageStateType
             environment,                     // @type: Environment (which is a string)
             initState,                             // @type: null | InitStateType
-            chatState                              // @type: null | ChatStateType
+            chatState,
         } = data;
         this.myInternalState = messageState != null ? messageState : {'someKey': 'someValue'};
         this.myInternalState['numUsers'] = Object.keys(users).length;
         this.myInternalState['numChars'] = Object.keys(characters).length;
+    }
+    private clampAffection(value: number): number {
+    return Math.max(0, Math.min(100, value));
     }
 
     async load(): Promise<Partial<LoadResponse<InitStateType, ChatStateType, MessageStateType>>> {
@@ -111,46 +112,51 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             this.myInternalState = {...this.myInternalState, ...state};
         }
     }
-    // work-in-progress logic block for the Stage
-    // THis will go insdie the Stage class, in beforePrompt and afterResponse
-
-    //MESSAGE-LEVEL STATE
-    //we track only the affection score for now
 
     // --- BEFORE PROMPT ---
    async beforePrompt(userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-    const affectionScore = this.myInternalState['affection'] ?? 50;
-    let stageDirections = null;
+    const affection: { [id: string]: number } = this.myInternalState['affection'] ?? {};
+    const characters = Object.keys(this.charactersMap);
+    const directions: string[] = [];
 
-    if (affectionScore < 25) {
-        stageDirections = "{{char}} keeps a clear emotional distance from {{user}}, masking distrust behind short or guarded responses.";
-    } else if (affectionScore < 45) {
-        stageDirections = "{{char}} responds warily, showing signs of tension and hesitation around {{user}}.";
-    } else if (affectionScore <= 55) {
-        stageDirections = "{{char}} responds neutrally, neither warm nor cold, but observant of {{user}}'s actions.";
-    } else if (affectionScore <= 74) {
-        stageDirections = "{{char}} shows brief moments of warmth or trust, glancing at {{user}} with softening eyes or a relaxed posture.";
-    } else if (affectionScore <= 89) {
-        stageDirections = "{{char}} treats {{user}} as a trusted companion, responding with vulnerability or emotional openness.";
-    } else {
-        stageDirections = "{{char}} looks to {{user}} with deep emotional reliance, visibly more relaxed and willing to engage closely.";
+    for (const charId of characters) {
+        if (!(charId in affection)) affection[charId] = 50; // Default affection score{
+        const score = affection[charId]; 
+
+      if (score < 25) {
+            directions.push(`{{char:${charId}}} keeps a clear emotional distance from {{user}}, masking distrust behind short or guarded responses.`);
+        } else if (score < 45) {
+            directions.push(`{{char:${charId}}} responds warily, showing signs of tension and hesitation around {{user}}.`);
+        } else if (score <= 55) {
+            directions.push(`{{char:${charId}}} behaves according to their default personality, unaffected by {{user}} yet.`);
+        } else if (score <= 74) {
+            directions.push(`{{char:${charId}}} shows brief moments of warmth or trust, glancing at {{user}} with softening eyes or a relaxed posture.`);
+        } else if (score <= 89) {
+            directions.push(`{{char:${charId}}} treats {{user}} as a trusted companion, responding with vulnerability or emotional openness.`);
+        } else {
+            directions.push(`{{char:${charId}}} looks to {{user}} with deep emotional reliance, visibly more relaxed and willing to engage closely.`);
+        }
     }
 
+    this.myInternalState['affection'] = affection;
     return {
-        stageDirections,
-        messageState: { affection: affectionScore },
+        stageDirections: directions.join('\n'),
+        messageState: { affection },
         chatState: null,
-        systemMessage: `[Affection: ${affectionScore}]`, // for debugging
+        systemMessage: `[Affection Scores]\n` + Object.entries(affection).map(([k, v]) => `${k}: ${v}`).join('\n'),
         error: null
     };
 }
 
 // --- AFTER RESPONSE --- //
 async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-    const affectionScore = this.myInternalState['affection'] ?? 50;
     const content = botMessage.content.toLowerCase();
-    let delta = 0;
+    const affection: { [id: string]: number } = this.myInternalState['affection'] ?? {};
+    const botId = botMessage.anonymizedId;
     const logs: string[] = [];
+    let delta = 0;
+
+    if (!(botId in affection)) affection[botId] = 50;
 
     if (content.includes("thank you") || content.includes("i trust you") || content.includes("i feel safe")) {
         delta += 3; logs.push("+3: expression of trust or gratitude");
@@ -165,34 +171,39 @@ async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStat
         delta -= 2; logs.push("-2: emotional distance");
     }
 
-    // Decay near limits
-    let updated = affectionScore;
-    if (affectionScore >= 90 && delta > 0) delta = 1;
-    if (affectionScore <= 10 && delta < 0) delta = -1;
+    if (affection[botId] >= 90 && delta > 0) delta = 1;
+    if (affection[botId] <= 10 && delta < 0) delta = -1;
 
-    updated = clampAffection(affectionScore + delta);
-    this.myInternalState['affection'] = updated; // persist it
+    affection[botId] = this.clampAffection(affection[botId] + delta);
 
+    this.myInternalState['affection'] = affection;
     return {
-        messageState: { affection: updated },
+        messageState: { affection },
         chatState: null,
-        systemMessage: `[Delta: ${delta} | New: ${updated}]\n${logs.join("\n")}`,
+        systemMessage: `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n"),
         error: null
     };
 }
 
+
   render(): ReactElement {
+    const affection = this.myInternalState['affection'] ?? {};
+    const affectionDisplay = Object.entries(affection).map(([charId, score]) => {
+        const name= this.charactersMap[charId]?.name || charId;
+        return <p key={charId}><strong>{charId}</strong>: {score as number}</p>;
+  }); // <--- end of affectionDisplay map --->
+
     return (
         <div className="your-stage-wrapper">
             <h2>Relationship Tracker</h2>
-            <p>Key: {this.myInternalState['someKey']}</p>
             <p>
                 There {this.myInternalState['numUsers'] === 1 ? 'is' : 'are'}{' '}
                 {this.myInternalState['numUsers']} human{this.myInternalState['numUsers'] !== 1 ? 's' : ''} and{' '}
                 {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
             </p>
+            {affectionDisplay}
         </div>
-    );
-} //<--- end of render() --->
+    ); // <--- end of return statement --->
+} // <--- end of render() --->
 
 } // <--- end of class Stage --->
