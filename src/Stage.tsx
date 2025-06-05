@@ -164,12 +164,19 @@ async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStat
     if (content.includes("smile") || content.includes("laughs") || content.includes("relaxes")) {
         delta += 2; logs.push("+2: character relaxed or warm");
     }
-    if (content.includes("scowl") || content.includes("knife") || content.includes("step back") || content.includes("growl")) {
-        delta -= 3; logs.push("-3: defensive or fearful reaction");
-    }
+    if (
+    (content.includes("scowl") || content.includes("step back") || content.includes("knife")) &&
+    !content.includes("smile") && !content.includes("laugh") && !content.includes("giggle")
+) {
+    delta -= 3; logs.push("-3: defensive or fearful reaction");
+}
+
     if (content.includes("silent") || content.includes("coldly") || content.includes("suspicious")) {
         delta -= 2; logs.push("-2: emotional distance");
     }
+    if (content.includes("growls at") || content.includes("growling in warning")) {
+    delta -= 3; logs.push("-3: hostile growl");
+}
 
     if (affection[botId] >= 90 && delta > 0) delta = 1;
     if (affection[botId] <= 10 && delta < 0) delta = -1;
@@ -188,10 +195,9 @@ async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStat
 
   render(): ReactElement {
     const affection = this.myInternalState['affection'] ?? {};
-    const affectionDisplay = Object.entries(affection).map(([charId, score]) => {
-        const name= this.charactersMap[charId]?.name || charId;
-        return <p key={charId}><strong>{charId}</strong>: {score as number}</p>;
-  }); // <--- end of affectionDisplay map --->
+    const affectionDisplay = Object.entries(affection).map(([charId, score]) => (
+        <p key={charId}><strong>{this.charactersMap?.[charId]?.name ?? charId}</strong>: {score as number}</p>
+    )); // <--- end of affectionDisplay map --->
 
     return (
         <div className="your-stage-wrapper">
@@ -203,7 +209,7 @@ async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStat
             </p>
             {affectionDisplay}
         </div>
-    ); // <--- end of return statement --->
+    );
 } // <--- end of render() --->
 
 } // <--- end of class Stage --->
