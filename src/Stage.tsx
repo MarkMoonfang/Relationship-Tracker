@@ -1,4 +1,4 @@
-""import {ReactElement} from "react";
+import {ReactElement} from "react";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
 
@@ -137,14 +137,14 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         ));
 
         return (
-            <div className="your-stage-wrapper"> // <-- start of return statement
+            <div className="your-stage-wrapper">
                 <h2>Relationship Tracker</h2>
                 <p>
                     There {this.myInternalState['numUsers'] === 1 ? 'is' : 'are'}{' '}
                     {this.myInternalState['numUsers']} human{this.myInternalState['numUsers'] !== 1 ? 's' : ''} and{' '} // Display number of users and characters
                     {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present. // Display number of users and characters
-                </p> // Display number of users and characters
-                {affectionDisplay} // Display affection scores for each character
+                </p>    
+                {affectionDisplay}  
             </div> // <-- end of return statement
         ); // <-- end of return statement
     } // <-- end of render method
