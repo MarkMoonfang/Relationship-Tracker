@@ -83,12 +83,14 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             stageDirections: directions.join('\n'),
             messageState: { affection },
             chatState: null,
-            systemMessage: `[Affection Scores]\n` + Object.entries(affection).map(([k, v]) => `${k}: ${v}`).join('\n'),
+            systemMessage: null,
             error: null
         };
     }
 
     async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
+        if (!botMessage.isBot) return {};
+
         const content = botMessage.content.toLowerCase();
         const affection: { [id: string]: number } = this.myInternalState['affection'] ?? {};
         const botId = botMessage.anonymizedId;
@@ -109,11 +111,17 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         ) {
             delta -= 3; logs.push("-3: defensive or fearful reaction");
         }
-        if (content.includes("silent") || content.includes("coldly") || content.includes("suspicious")) {
-            delta -= 2; logs.push("-2: emotional distance");
+        if ((content.includes("coldly") || content.includes("suspicious")) &&
+            (content.includes("you") || content.includes("{{user}}"))) {
+            delta -= 2; logs.push("-2: emotional distance toward user");
         }
         if (content.includes("growls at") || content.includes("growling in warning")) {
             delta -= 3; logs.push("-3: hostile growl");
+        }
+
+        // New bonus: Respect for allowing freedom
+        if (content.includes("unlocks") || content.includes("frees") || content.includes("lets me choose") || content.includes("not forcing")) {
+            delta += 1; logs.push("+1: perceived agency/freedom granted by user");
         }
 
         if (affection[botId] >= 90 && delta > 0) delta = 1;
@@ -125,7 +133,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         return {
             messageState: { affection },
             chatState: null,
-            systemMessage: `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n"),
+            systemMessage: null,
             error: null
         };
     }
@@ -141,11 +149,11 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                 <h2>Relationship Tracker</h2>
                 <p>
                     There {this.myInternalState['numUsers'] === 1 ? 'is' : 'are'}{' '}
-                    {this.myInternalState['numUsers']} human{this.myInternalState['numUsers'] !== 1 ? 's' : ''} and{' '} // Display number of users and characters
-                    {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present. // Display number of users and characters
-                </p>    
-                {affectionDisplay}  
-            </div> // <-- end of return statement
-        ); // <-- end of return statement
-    } // <-- end of render method
-} // <-- end of Stage class
+                    {this.myInternalState['numUsers']} human{this.myInternalState['numUsers'] !== 1 ? 's' : ''} and{' '}
+                    {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
+                </p>
+                {affectionDisplay}
+            </div>
+        );
+    }
+}
