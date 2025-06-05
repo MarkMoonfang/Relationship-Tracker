@@ -50,7 +50,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
     async setState(state: MessageStateType): Promise<void> {
         if (state != null) {
-            this.myInternalState = { ...this.myInternalState, ...state };
+            this.myInternalState[`affection`] = state.affection ?? this.myInternalState[`affection`];
         }
     }
 
@@ -131,9 +131,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         this.myInternalState['affection'] = affection;
 
         return {
-            messageState: { affection },
+            messageState: { affection: affection },
             chatState: null,
-            systemMessage: null,
+            systemMessage: null, // now properly hidden
             error: null
         };
     }
