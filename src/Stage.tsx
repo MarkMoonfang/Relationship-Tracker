@@ -89,53 +89,60 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     }
 
     async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-        if (!botMessage.isBot) return {};
-
         const content = botMessage.content.toLowerCase();
         const affection: { [id: string]: number } = this.myInternalState['affection'] ?? {};
         const botId = botMessage.anonymizedId;
         const logs: string[] = [];
         let delta = 0;
 
-        if (!(botId in affection)) affection[botId] = 50;
-
+        if (!(botId in affection)) affection[botId] = 50; // Initialize affection if not present
+        if (content.includes("i love you") || content.includes("i care about you") || content.includes("i appreciate you")) {
+            delta += 5; logs.push("+5: strong expression of affection");
+        }
+        if (content.includes("i like you") || content.includes("i enjoy your company") || content.includes("i value you")) {
+            delta += 4; logs.push("+4: positive sentiment towards user");
+        }
+        if (content.includes("i understand you") || content.includes("i support you") || content.includes("i empathize with you")) {
+            delta += 3; logs.push("+3: empathetic or supportive response");
+        }
         if (content.includes("thank you") || content.includes("i trust you") || content.includes("i feel safe")) {
             delta += 3; logs.push("+3: expression of trust or gratitude");
+        }
+        if (content.includes("i am here for you") || content.includes("i will protect you") || content.includes("i will help you")) {
+            delta += 2; logs.push("+2: supportive or protective sentiment");
+        }
+        if (content.includes("i am happy") || content.includes("i am glad") || content.includes("i am excited")) {
+            delta += 2; logs.push("+2: positive emotional state");
         }
         if (content.includes("smile") || content.includes("laughs") || content.includes("relaxes")) {
             delta += 2; logs.push("+2: character relaxed or warm");
         }
         if (
-            (content.includes("scowl") || content.includes("step back") || content.includes("knife")) &&
-            !content.includes("smile") && !content.includes("laugh") && !content.includes("giggle")
+        (content.includes("scowl") || content.includes("step back") || content.includes("knife")) &&
+        !content.includes("smile") && !content.includes("laugh") && !content.includes("giggle")
         ) {
             delta -= 3; logs.push("-3: defensive or fearful reaction");
         }
-        if ((content.includes("coldly") || content.includes("suspicious")) &&
-            (content.includes("you") || content.includes("{{user}}"))) {
-            delta -= 2; logs.push("-2: emotional distance toward user");
+        if (content.includes("silent") || content.includes("coldly") || content.includes("suspicious")) {
+            delta -= 2; logs.push("-2: emotional distance");
         }
         if (content.includes("growls at") || content.includes("growling in warning")) {
-            delta -= 3; logs.push("-3: hostile growl");
+        delta -= 3; logs.push("-3: hostile growl");
         }
 
-        // New bonus: Respect for allowing freedom
-        if (content.includes("unlocks") || content.includes("frees") || content.includes("lets me choose") || content.includes("not forcing")) {
-            delta += 1; logs.push("+1: perceived agency/freedom granted by user");
-        }
+        if (affection[botId] >= 90 && delta > 0) delta = 1; // Prevent extreme increases
+        if (affection[botId] <= 10 && delta < 0) delta = -1; // Prevent extreme changes
 
-        if (affection[botId] >= 90 && delta > 0) delta = 1;
-        if (affection[botId] <= 10 && delta < 0) delta = -1;
-
-        affection[botId] = this.clampAffection(affection[botId] + delta);
+        affection[botId] = this.clampAffection(affection[botId] + delta); // Update affection score
         this.myInternalState['affection'] = affection;
 
         return {
-            messageState: { affection: affection },
+            messageState: { affection },
             chatState: null,
-            systemMessage: null, // now properly hidden
+            systemMessage: null,
             error: null
         };
+        await this.setState({ affection });
     }
 
     render(): ReactElement {
