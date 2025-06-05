@@ -2,29 +2,24 @@ import {ReactElement} from "react";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
 
-// Message-level state (tracked per message)
+// Define types for state and config
+
+/*** Message-level state (tracked per message) ***/
 type MessageStateType = any;
 
-// Configuration schema (optional)
+/*** Configuration schema (optional) ***/
 type ConfigType = any;
 
-// Initialization state (persisted once per chat)
+/*** Initialization state (persisted once per chat) ***/
 type InitStateType = any;
 
-// Chat-wide dynamic state
+/*** Chat-wide dynamic state ***/
 type ChatStateType = any;
 
-// Main Stage class definition
 export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateType, ConfigType> {
-    myInternalState: { [key: string]: any }; // Ephemeral internal state during session
-    private charactersMap: { [id: string]: any } = {}; // Stores bot ID to bot data
+    myInternalState: { [key: string]: any };
+    private charactersMap: { [id: string]: any } = {};
 
-    // Clamp affection score to range [0, 100]
-    private clampAffection(value: number): number {
-        return Math.max(0, Math.min(100, value));
-    }
-
-    // Constructor called once at stage instantiation
     constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType>) {
         super(data);
         this.charactersMap = data.characters;
@@ -39,9 +34,12 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         this.myInternalState['numChars'] = Object.keys(characters).length;
     }
 
-    // Load runs at the start of a new chat/branch
+    private clampAffection(value: number): number {
+        return Math.max(0, Math.min(100, value));
+    }
+
     async load(): Promise<Partial<LoadResponse<InitStateType, ChatStateType, MessageStateType>>> {
-        this.myInternalState['affection'] = {}; // Reset affection values
+        this.myInternalState['affection'] = {}; // Reset affection per new session
         return {
             success: true,
             error: null,
@@ -50,24 +48,21 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         };
     }
 
-    // Called when jumping across branches or restoring state
     async setState(state: MessageStateType): Promise<void> {
         if (state != null) {
-            this.myInternalState['affection'] = state.affection ?? this.myInternalState['affection'];
+            this.myInternalState[`affection`] = state.affection ?? this.myInternalState[`affection`];
         }
     }
 
-    // Called before the user's message is sent to the LLM
     async beforePrompt(userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
         const affection: { [id: string]: number } = this.myInternalState['affection'] ?? {};
         const characters = Object.keys(this.charactersMap);
         const directions: string[] = [];
 
         for (const charId of characters) {
-            if (!(charId in affection)) affection[charId] = 50; // Set default if missing
+            if (!(charId in affection)) affection[charId] = 50;
             const score = affection[charId];
 
-            // Add character-specific emotional behavior
             if (score < 25) {
                 directions.push(`{{char:${charId}}} keeps a clear emotional distance from {{user}}, masking distrust behind short or guarded responses.`);
             } else if (score < 45) {
@@ -88,12 +83,11 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             stageDirections: directions.join('\n'),
             messageState: { affection },
             chatState: null,
-            systemMessage: null, // Hidden from chat
+            systemMessage: null,
             error: null
         };
     }
 
-    // Called after bot replies to update affection based on message tone
     async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
         const content = botMessage.content.toLowerCase();
         const affection: { [id: string]: number } = this.myInternalState['affection'] ?? {};
@@ -101,20 +95,31 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const logs: string[] = [];
         let delta = 0;
 
-        if (!(botId in affection)) affection[botId] = 50; // Default affection if unknown
-
-        // Affection increases
+        if (!(botId in affection)) affection[botId] = 50; // Initialize affection if not present
+        if (content.includes("i love you") || content.includes("i care about you") || content.includes("i appreciate you")) {
+            delta += 5; logs.push("+5: strong expression of affection");
+        }
+        if (content.includes("i like you") || content.includes("i enjoy your company") || content.includes("i value you")) {
+            delta += 4; logs.push("+4: positive sentiment towards user");
+        }
+        if (content.includes("i understand you") || content.includes("i support you") || content.includes("i empathize with you")) {
+            delta += 3; logs.push("+3: empathetic or supportive response");
+        }
         if (content.includes("thank you") || content.includes("i trust you") || content.includes("i feel safe")) {
             delta += 3; logs.push("+3: expression of trust or gratitude");
+        }
+        if (content.includes("i am here for you") || content.includes("i will protect you") || content.includes("i will help you")) {
+            delta += 2; logs.push("+2: supportive or protective sentiment");
+        }
+        if (content.includes("i am happy") || content.includes("i am glad") || content.includes("i am excited")) {
+            delta += 2; logs.push("+2: positive emotional state");
         }
         if (content.includes("smile") || content.includes("laughs") || content.includes("relaxes")) {
             delta += 2; logs.push("+2: character relaxed or warm");
         }
-
-        // Affection decreases (only if no contradicting warm tones)
         if (
-            (content.includes("scowl") || content.includes("step back") || content.includes("knife")) &&
-            !content.includes("smile") && !content.includes("laugh") && !content.includes("giggle")
+        (content.includes("scowl") || content.includes("step back") || content.includes("knife")) &&
+        !content.includes("smile") && !content.includes("laugh") && !content.includes("giggle")
         ) {
             delta -= 3; logs.push("-3: defensive or fearful reaction");
         }
@@ -122,19 +127,14 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             delta -= 2; logs.push("-2: emotional distance");
         }
         if (content.includes("growls at") || content.includes("growling in warning")) {
-            delta -= 3; logs.push("-3: hostile growl");
+        delta -= 3; logs.push("-3: hostile growl");
         }
 
-        // Decay near boundaries
-        if (affection[botId] >= 90 && delta > 0) delta = 1;
-        if (affection[botId] <= 10 && delta < 0) delta = -1;
+        if (affection[botId] >= 90 && delta > 0) delta = 1; // Prevent extreme increases
+        if (affection[botId] <= 10 && delta < 0) delta = -1; // Prevent extreme changes
 
-        // Apply affection delta
-        affection[botId] = this.clampAffection(affection[botId] + delta);
+        affection[botId] = this.clampAffection(affection[botId] + delta); // Update affection score
         this.myInternalState['affection'] = affection;
-
-        // Optional debug log in render
-        this.myInternalState['affectionLog'] = logs.length > 0 ? `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n") : null;
 
         return {
             messageState: { affection },
@@ -142,12 +142,11 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             systemMessage: null,
             error: null
         };
+        await this.setState({ affection });
     }
 
-    // Visual panel render function (debug only)
     render(): ReactElement {
         const affection = this.myInternalState['affection'] ?? {};
-        const logOutput = this.myInternalState['affectionLog'] ?? null;
         const affectionDisplay = Object.entries(affection).map(([charId, score]) => (
             <p key={charId}><strong>{this.charactersMap?.[charId]?.name ?? charId}</strong>: {score as number}</p>
         ));
@@ -161,7 +160,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
                     {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
                 </p>
                 {affectionDisplay}
-                {logOutput && <pre>{logOutput}</pre>}
             </div>
         );
     }
