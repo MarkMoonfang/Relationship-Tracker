@@ -1,6 +1,7 @@
 import {ReactElement} from "react";
 import {StageBase, StageResponse, InitialData, Message} from "@chub-ai/stages-ts";
 import {LoadResponse} from "@chub-ai/stages-ts/dist/types/load";
+import { Client } from "@gradio/client";
 
 // Message-level state (tracked per message)
 type MessageStateType = any;
@@ -18,7 +19,7 @@ type ChatStateType = any;
 export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateType, ConfigType> {
     myInternalState: { [key: string]: any }; // Ephemeral internal state during session
     private charactersMap: { [id: string]: any } = {}; // Stores bot ID to bot data
-    private llm: any; // Store reference to LLM helper
+    private emotionClient: any = null; // HuggingFace emotion classifier
 
     // Clamp affection score to range [0, 100]
     private clampAffection(value: number): number {
@@ -26,10 +27,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     }
 
     // Constructor called once at stage instantiation
-    constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType> & { llm?: any }) {
+    constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType>) {
         super(data);
         this.charactersMap = data.characters;
-        this.llm = data.llm ?? null;
         const {
             characters,
             users,
@@ -43,6 +43,12 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
     // Load runs at the start of a new chat/branch
     async load(): Promise<Partial<LoadResponse<InitStateType, ChatStateType, MessageStateType>>> {
+        try {
+            this.emotionClient = await Client.connect("lloorree/SamLowe-roberta-base-go_emotions");
+        } catch (e) {
+            console.warn("Failed to connect to emotion classifier", e);
+        }
+
         this.myInternalState['affection'] = {}; // Reset affection values
         return {
             success: true,
@@ -97,68 +103,57 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
     // Called after bot replies to update affection based on message tone
     async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-        const content = botMessage.content.toLowerCase();
+        const content = botMessage.content;
         const affection: { [id: string]: number } = this.myInternalState['affection'] ?? {};
         const botId = botMessage.anonymizedId;
         const logs: string[] = [];
         let delta = 0;
 
-        if (!(botId in affection)) affection[botId] = 50; // Default affection if unknown
+        if (!(botId in affection)) affection[botId] = 50;
 
         try {
-            const schema = {
-                type: "object",
-                properties: {
-                    delta: { type: "integer" },
-                    reason: { type: "string" }
-                },
-                required: ["delta"]
-            };
+            if (this.emotionClient != null) {
+                const prediction = await this.emotionClient.predict("/predict", { param_0: content });
+                const emotionLabel = prediction.data[0].label.toLowerCase();
 
-            // Use the LLM helper to extract JSON from the message content
-            if (this.llm?.extractJSONFromMessage) {
-                const result = await this.llm.extractJSONFromMessage(content, schema);
-                if (result?.delta !== undefined) {
-                    delta = result.delta;
-                    logs.push(`Delta from LLM: ${delta}`);
-                    if (result.reason) logs.push(`Reason: ${result.reason}`);
-                }
+                const emotionMap: { [key: string]: number } = {
+                    trust: +3,
+                    joy: +2,
+                    love: +2,
+                    gratitude: +3,
+                    approval: +2,
+                    caring: +2,
+                    amusement: +1,
+                    surprise: +1,
+                    optimism: +1,
+                    sadness: -1,
+                    fear: -2,
+                    anger: -3,
+                    disgust: -3,
+                    disapproval: -2,
+                    annoyance: -1,
+                    disappointment: -1,
+                    embarrassment: -1,
+                    nervousness: -1,
+                    remorse: -2,
+                    grief: -2
+                };
+
+                delta = emotionMap[emotionLabel] ?? 0;
+                logs.push(`HF Emotion: ${emotionLabel}`);
+                logs.push(`Mapped delta: ${delta}`);
             } else {
-                logs.push("No LLM helper available.");
+                logs.push("No HuggingFace client available");
             }
         } catch (e) {
-            logs.push("LLM JSON extraction failed, defaulting to heuristics");
-
-            // Fallback heuristics
-            if (content.includes("thank you") || content.includes("i trust you") || content.includes("i feel safe")) {
-                delta += 3; logs.push("+3: expression of trust or gratitude");
-            }
-            if (content.includes("smile") || content.includes("laughs") || content.includes("relaxes")) {
-                delta += 2; logs.push("+2: character relaxed or warm");
-            }
-            if (
-                (content.includes("scowl") || content.includes("step back") || content.includes("knife")) &&
-                !content.includes("smile") && !content.includes("laugh") && !content.includes("giggle")
-            ) {
-                delta -= 3; logs.push("-3: defensive or fearful reaction");
-            }
-            if (content.includes("silent") || content.includes("coldly") || content.includes("suspicious")) {
-                delta -= 2; logs.push("-2: emotional distance");
-            }
-            if (content.includes("growls at") || content.includes("growling in warning")) {
-                delta -= 3; logs.push("-3: hostile growl");
-            }
+            logs.push("Emotion classification failed");
         }
 
-        // Decay near boundaries
         if (affection[botId] >= 90 && delta > 0) delta = 1;
         if (affection[botId] <= 10 && delta < 0) delta = -1;
 
-        // Apply affection delta
         affection[botId] = this.clampAffection(affection[botId] + delta);
         this.myInternalState['affection'] = affection;
-
-        // Optional debug log in render
         this.myInternalState['affectionLog'] = logs.length > 0 ? `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n") : null;
 
         return {
