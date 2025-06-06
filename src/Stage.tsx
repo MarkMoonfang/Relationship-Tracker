@@ -18,6 +18,7 @@ type ChatStateType = any;
 export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateType, ConfigType> {
     myInternalState: { [key: string]: any }; // Ephemeral internal state during session
     private charactersMap: { [id: string]: any } = {}; // Stores bot ID to bot data
+    private llm: any; // Store reference to LLM helper
 
     // Clamp affection score to range [0, 100]
     private clampAffection(value: number): number {
@@ -25,9 +26,10 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     }
 
     // Constructor called once at stage instantiation
-    constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType>) {
+    constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType> & { llm?: any }) {
         super(data);
         this.charactersMap = data.characters;
+        this.llm = data.llm ?? null;
         const {
             characters,
             users,
@@ -88,7 +90,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             stageDirections: directions.join('\n'),
             messageState: { affection },
             chatState: null,
-            systemMessage: null, // Hidden from chat
+            systemMessage: null,
             error: null
         };
     }
@@ -103,26 +105,49 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
         if (!(botId in affection)) affection[botId] = 50; // Default affection if unknown
 
-        // Affection increases
-        if (content.includes("thank you") || content.includes("i trust you") || content.includes("i feel safe")) {
-            delta += 3; logs.push("+3: expression of trust or gratitude");
-        }
-        if (content.includes("smile") || content.includes("laughs") || content.includes("relaxes")) {
-            delta += 2; logs.push("+2: character relaxed or warm");
-        }
+        try {
+            const schema = {
+                type: "object",
+                properties: {
+                    delta: { type: "integer" },
+                    reason: { type: "string" }
+                },
+                required: ["delta"]
+            };
 
-        // Affection decreases (only if no contradicting warm tones)
-        if (
-            (content.includes("scowl") || content.includes("step back") || content.includes("knife")) &&
-            !content.includes("smile") && !content.includes("laugh") && !content.includes("giggle")
-        ) {
-            delta -= 3; logs.push("-3: defensive or fearful reaction");
-        }
-        if (content.includes("silent") || content.includes("coldly") || content.includes("suspicious")) {
-            delta -= 2; logs.push("-2: emotional distance");
-        }
-        if (content.includes("growls at") || content.includes("growling in warning")) {
-            delta -= 3; logs.push("-3: hostile growl");
+            // Use the LLM helper to extract JSON from the message content
+            if (this.llm?.extractJSONFromMessage) {
+                const result = await this.llm.extractJSONFromMessage(content, schema);
+                if (result?.delta !== undefined) {
+                    delta = result.delta;
+                    logs.push(`Delta from LLM: ${delta}`);
+                    if (result.reason) logs.push(`Reason: ${result.reason}`);
+                }
+            } else {
+                logs.push("No LLM helper available.");
+            }
+        } catch (e) {
+            logs.push("LLM JSON extraction failed, defaulting to heuristics");
+
+            // Fallback heuristics
+            if (content.includes("thank you") || content.includes("i trust you") || content.includes("i feel safe")) {
+                delta += 3; logs.push("+3: expression of trust or gratitude");
+            }
+            if (content.includes("smile") || content.includes("laughs") || content.includes("relaxes")) {
+                delta += 2; logs.push("+2: character relaxed or warm");
+            }
+            if (
+                (content.includes("scowl") || content.includes("step back") || content.includes("knife")) &&
+                !content.includes("smile") && !content.includes("laugh") && !content.includes("giggle")
+            ) {
+                delta -= 3; logs.push("-3: defensive or fearful reaction");
+            }
+            if (content.includes("silent") || content.includes("coldly") || content.includes("suspicious")) {
+                delta -= 2; logs.push("-2: emotional distance");
+            }
+            if (content.includes("growls at") || content.includes("growling in warning")) {
+                delta -= 3; logs.push("-3: hostile growl");
+            }
         }
 
         // Decay near boundaries
