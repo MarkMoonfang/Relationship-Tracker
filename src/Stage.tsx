@@ -147,6 +147,13 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       });
 
       const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences;
+        logs.push("RAW EMOTIONS:");
+            for (const e of allEmotions) {
+        logs.push(`${e.label}: ${(e.confidence * 100).toFixed(1)}%`);
+        } 
+        if (!allEmotions || allEmotions.length === 0) {
+            logs.push("No emotions returned by pipeline.");
+            }
       const filtered = allEmotions.filter(e => e.confidence >= 0.25);
       const primary = filtered.map(e => e.label);
 
