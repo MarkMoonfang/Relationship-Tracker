@@ -151,60 +151,72 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   }
 
   async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-    const content = botMessage.content.toLowerCase();
-    const botId = botMessage.anonymizedId;
-    const userId = Object.keys(this.initialData.users)[0] ?? "default"; // ✅ FIXED
+  const content = botMessage.content.toLowerCase();
+  const botId = botMessage.anonymizedId;
+  const userId = Object.keys(this.initialData.users)[0] ?? "default";
 
-    const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
-    const logs: string[] = [];
+  const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
+  const logs: string[] = [];
 
-    if (!(userId in affection)) affection[userId] = {};
-    if (!(botId in affection[userId])) affection[userId][botId] = 50;
+  if (!(userId in affection)) affection[userId] = {};
+  if (!(botId in affection[userId])) affection[userId][botId] = 50;
 
+  try {
+    const prediction = await this.emotionClient.predict("/predict", {
+      param_0: content,
+    });
 
-    try {
-      const prediction = await this.emotionClient.predict("/predict", {
-        param_0: content,
-      });
+    // 🧠 Try to support a few common shapes
+    let rawEmotions: any[] = [];
 
-      const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences.map((e: any) => ({
-        label: e.label,
-        confidence: typeof e.confidence === 'number' ? e.confidence : parseFloat(e.confidence)
-      }));
-
-      logs.push("RAW EMOTIONS:");
-      for (const emo of allEmotions) {
-        logs.push(`${emo.label}: ${(emo.confidence * 100).toFixed(1)}%`);
-      }
-
-      const filtered = allEmotions.filter((e) => e.confidence >= 0.25);
-      logs.push("\nFILTERED (≥25% confidence):");
-      logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
-
-      // CHANGE 3 - Track filtered emotions per bot
-      this.myInternalState['emotionBreakdown'] ??= {};
-      this.myInternalState['emotionBreakdown'][botId] = filtered;
-
-      // CHANGE 7 - Use utility function
-      const delta = calculateEmotionDelta(filtered, this.emotionWeights, this.emotionCombos, logs);
-
-      affection[userId][botId] = this.clampAffection(affection[userId][botId] + delta);
-
-      this.myInternalState['affection'] = affection;
-      this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[userId][botId]}]\n` + logs.join("\n");
-    } catch (e: any) {
-      console.warn("Emotion classification failed", e);
-      logs.push("Emotion classification failed");
+    if (Array.isArray(prediction?.data)) {
+      const p0 = prediction.data[0];
+      if (Array.isArray(p0?.confidences)) rawEmotions = p0.confidences;
+      else if (Array.isArray(p0)) rawEmotions = p0;
+      else if (Array.isArray(prediction.data)) rawEmotions = prediction.data;
     }
 
-    return {
-      messageState: { affection },
-      chatState: null,
-      systemMessage: null,
-      error: null
-    };
+    const allEmotions: { label: string; confidence: number }[] = rawEmotions.map((e: any) => ({
+      label: e.label ?? e[0],
+      confidence: typeof e.confidence === "number"
+        ? e.confidence
+        : typeof e.score === "number"
+        ? e.score
+        : parseFloat(e.confidence ?? e.score ?? "0")
+    })).filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
+
+    logs.push("RAW EMOTIONS:");
+    for (const emo of allEmotions) {
+      logs.push(`${emo.label}: ${(emo.confidence * 100).toFixed(1)}%`);
+    }
+
+    const filtered = allEmotions.filter((e) => e.confidence >= 0.25);
+    logs.push("\nFILTERED (≥25% confidence):");
+    logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
+
+    // Save breakdown (CHANGE 3)
+    this.myInternalState['emotionBreakdown'] ??= {};
+    this.myInternalState['emotionBreakdown'][botId] = filtered;
+
+    // Calculate delta (CHANGE 7)
+    const delta = calculateEmotionDelta(filtered, this.emotionWeights, this.emotionCombos, logs);
+    affection[userId][botId] = this.clampAffection(affection[userId][botId] + delta);
+
+    this.myInternalState['affection'] = affection;
+    this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[userId][botId]}]\n` + logs.join("\n");
+
+  } catch (e: any) {
+    console.warn("Emotion classification failed", e);
+    logs.push("Emotion classification failed");
   }
 
+  return {
+    messageState: { affection },
+    chatState: null,
+    systemMessage: null,
+    error: null
+  };
+}
   render(): ReactElement {
     const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
     const affectionDisplay = Object.entries(affection).flatMap(([userId, bots]) =>
