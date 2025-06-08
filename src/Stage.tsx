@@ -137,7 +137,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences
         .map((e: any): { label: string; confidence: number } => ({
           label: e.label,
-          confidence: typeof e.confidence === "number" ? e.confidence : parseFloat(e.confidence ?? "0")
+          confidence: typeof e.score === "number" ? e.score : parseFloat(e.score ?? "0")
         }))
         .filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
 
@@ -152,6 +152,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
       logs.push("\nFILTERED (≥1% confidence, excluding neutral):");
       logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
+      logs.push("DEBUG RAW EMOTION RESPONSE:");
+      logs.push(JSON.stringify(prediction.data[0], null, 2));
+
 
       this.myInternalState['emotionBreakdown'] ??= {};
       this.myInternalState['emotionBreakdown'][botId] = filtered;
