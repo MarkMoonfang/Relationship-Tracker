@@ -158,15 +158,22 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
   const logs: string[] = [];
 
-  if (!(userId in affection)) affection[userId] = {};
-  if (!(botId in affection[userId])) affection[userId][botId] = 50;
+  // ✅ Narrator detection with TS-safe fallback
+  const rawName = (botMessage as any)?.name ?? "";
+  const metadata = (botMessage as any)?.metadata ?? {};
+  const isNarrator =
+    rawName.toLowerCase().includes("narrator") ||
+    rawName.toLowerCase().includes("system") ||
+    metadata?.role === "narrator";
+
+  this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;
 
   try {
     const prediction = await this.emotionClient.predict("/predict", {
       param_0: content,
     });
 
-    // 🧠 Try to support a few common shapes
+    // 🧠 Flexible raw shape parsing
     let rawEmotions: any[] = [];
 
     if (Array.isArray(prediction?.data)) {
@@ -190,24 +197,32 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       logs.push(`${emo.label}: ${(emo.confidence * 100).toFixed(1)}%`);
     }
 
-    const filtered = allEmotions.filter((e) => e.confidence >= 0.25);
-    logs.push("\nFILTERED (≥25% confidence):");
+    const filtered = allEmotions.filter((e) => e.confidence >= 0.1);
+    logs.push("\nFILTERED (≥10% confidence):");
     logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
 
-    // Save breakdown (CHANGE 3)
+    // ✅ Save emotional readout regardless of speaker type
     this.myInternalState['emotionBreakdown'] ??= {};
     this.myInternalState['emotionBreakdown'][botId] = filtered;
 
-    // Calculate delta (CHANGE 7)
-    const delta = calculateEmotionDelta(filtered, this.emotionWeights, this.emotionCombos, logs);
-    affection[userId][botId] = this.clampAffection(affection[userId][botId] + delta);
+    if (!isNarrator) {
+      if (!(userId in affection)) affection[userId] = {};
+      if (!(botId in affection[userId])) affection[userId][botId] = 50;
 
-    this.myInternalState['affection'] = affection;
-    this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[userId][botId]}]\n` + logs.join("\n");
+      const delta = calculateEmotionDelta(filtered, this.emotionWeights, this.emotionCombos, logs);
+      affection[userId][botId] = this.clampAffection(affection[userId][botId] + delta);
+
+      this.myInternalState['affection'] = affection;
+      this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[userId][botId]}]\n` + logs.join("\n");
+    } else {
+      logs.push("📎 Narrator message detected — skipping affection change.");
+      this.myInternalState['affectionLog'] = `[Narrator: No affection update for ${botId}]\n` + logs.join("\n");
+    }
 
   } catch (e: any) {
     console.warn("Emotion classification failed", e);
     logs.push("Emotion classification failed");
+    this.myInternalState['affectionLog'] = logs.join("\n");
   }
 
   return {
@@ -217,8 +232,14 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     error: null
   };
 }
+
   render(): ReactElement {
     const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
+    {this.myInternalState['lastSpeakerIsNarrator'] && (
+  <p style={{ fontStyle: 'italic', color: '#666' }}>
+    Narrator message — relationship values unchanged.
+  </p>
+)}
     const affectionDisplay = Object.entries(affection).flatMap(([userId, bots]) =>
       Object.entries(bots).map(([charId, score]) => (
         <p key={`${userId}-${charId}`}><strong>{this.charactersMap?.[charId]?.name ?? charId}</strong>: {String(score)} (user: {userId})</p>
