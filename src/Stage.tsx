@@ -158,7 +158,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
   const logs: string[] = [];
 
-  // ✅ Narrator detection with TS-safe fallback
   const rawName = (botMessage as any)?.name ?? "";
   const metadata = (botMessage as any)?.metadata ?? {};
   const isNarrator =
@@ -168,22 +167,72 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
   this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;
 
+  // 🛑 If botId is missing or unrecognized, skip affection
+  if (!botId || !this.charactersMap[botId]) {
+    logs.push(`🛑 Skipping affection tracking for unknown botId: ${botId}`);
+
+    // Try to still log emotions if possible
+    try {
+      const prediction = await this.emotionClient.predict("/predict", {
+        param_0: content,
+      });
+
+      let rawEmotions: any[] = [];
+
+      if (Array.isArray(prediction?.data)) {
+        const p0 = prediction.data[0];
+        if (Array.isArray(p0?.confidences)) rawEmotions = p0.confidences;
+        else if (Array.isArray(p0)) rawEmotions = p0;
+        else rawEmotions = prediction.data;
+      }
+
+      const allEmotions = rawEmotions.map((e: any) => ({
+        label: e.label ?? e[0],
+        confidence: typeof e.confidence === "number"
+          ? e.confidence
+          : typeof e.score === "number"
+          ? e.score
+          : parseFloat(e.confidence ?? e.score ?? "0")
+      })).filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
+
+      const filtered = allEmotions.filter(e => e.confidence >= 0.1);
+
+      logs.push("Narrator/Unknown Entity Emotion Log:");
+      logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
+
+      this.myInternalState['narratorEmotionLog'] = {
+        speaker: rawName || botId || "Unknown",
+        emotions: filtered,
+      };
+
+    } catch (err) {
+      logs.push("Failed to get emotion for unknown entity.");
+    }
+
+    this.myInternalState['affectionLog'] = logs.join("\n");
+    return {
+      messageState: { affection },
+      chatState: null,
+      systemMessage: null,
+      error: null
+    };
+  }
+
   try {
     const prediction = await this.emotionClient.predict("/predict", {
       param_0: content,
     });
 
-    // 🧠 Flexible raw shape parsing
     let rawEmotions: any[] = [];
 
     if (Array.isArray(prediction?.data)) {
       const p0 = prediction.data[0];
       if (Array.isArray(p0?.confidences)) rawEmotions = p0.confidences;
       else if (Array.isArray(p0)) rawEmotions = p0;
-      else if (Array.isArray(prediction.data)) rawEmotions = prediction.data;
+      else rawEmotions = prediction.data;
     }
 
-    const allEmotions: { label: string; confidence: number }[] = rawEmotions.map((e: any) => ({
+    const allEmotions = rawEmotions.map((e: any) => ({
       label: e.label ?? e[0],
       confidence: typeof e.confidence === "number"
         ? e.confidence
@@ -201,7 +250,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     logs.push("\nFILTERED (≥10% confidence):");
     logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
 
-    // ✅ Save emotional readout regardless of speaker type
     this.myInternalState['emotionBreakdown'] ??= {};
     this.myInternalState['emotionBreakdown'][botId] = filtered;
 
@@ -216,6 +264,10 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[userId][botId]}]\n` + logs.join("\n");
     } else {
       logs.push("📎 Narrator message detected — skipping affection change.");
+      this.myInternalState['narratorEmotionLog'] = {
+        speaker: rawName || botId,
+        emotions: filtered,
+      };
       this.myInternalState['affectionLog'] = `[Narrator: No affection update for ${botId}]\n` + logs.join("\n");
     }
 
@@ -234,31 +286,51 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 }
 
   render(): ReactElement {
-    const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
-    {this.myInternalState['lastSpeakerIsNarrator'] && (
-  <p style={{ fontStyle: 'italic', color: '#666' }}>
-    Narrator message — relationship values unchanged.
-  </p>
-)}
-    const affectionDisplay = Object.entries(affection).flatMap(([userId, bots]) =>
-      Object.entries(bots).map(([charId, score]) => (
-        <p key={`${userId}-${charId}`}><strong>{this.charactersMap?.[charId]?.name ?? charId}</strong>: {String(score)} (user: {userId})</p>
-      ))
-    );
-
-    const logOutput = this.myInternalState['affectionLog'] ?? null;
-
-    return (
-      <div className="your-stage-wrapper">
-        <h2>Relationship Tracker</h2>
-        <p>
-          There {this.myInternalState['numUsers'] === 1 ? 'is' : 'are'}{' '}
-          {this.myInternalState['numUsers']} human{this.myInternalState['numUsers'] !== 1 ? 's' : ''} and{' '}
-          {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
+  const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
+  const affectionDisplay = Object.entries(affection).flatMap(([userId, bots]) =>
+    Object.entries(bots)
+      .filter(([charId]) => !!this.charactersMap?.[charId])
+      .map(([charId, score]) => (
+        <p key={`${userId}-${charId}`}>
+          <strong>{this.charactersMap[charId].name}</strong>: {String(score)} (user: {userId})
         </p>
-        {affectionDisplay}
-        {logOutput && <pre>{logOutput}</pre>}
-      </div>
-    );
+      ))
+  );
+
+  const logOutput = this.myInternalState['affectionLog'] ?? null;
+  const narratorEmotionLog = this.myInternalState['narratorEmotionLog'] ?? null;
+
+  return (
+    <div className="your-stage-wrapper">
+      <h2>Relationship Tracker</h2>
+      <p>
+        There {this.myInternalState['numUsers'] === 1 ? 'is' : 'are'}{' '}
+        {this.myInternalState['numUsers']} human{this.myInternalState['numUsers'] !== 1 ? 's' : ''} and{' '}
+        {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
+      </p>
+
+      {affectionDisplay}
+
+      {this.myInternalState['lastSpeakerIsNarrator'] && (
+        <p style={{ fontStyle: 'italic', color: '#666' }}>
+          Narrator message — relationship values unchanged.
+        </p>
+      )}
+
+      {narratorEmotionLog && (
+        <div style={{ marginTop: "1em", padding: "0.5em", background: "#f7f7f7", border: "1px solid #ccc" }}>
+          <strong>Narrator Emotional Readout:</strong>
+          <p>Speaker: <code>{narratorEmotionLog.speaker}</code></p>
+          <ul>
+            {narratorEmotionLog.emotions.map((e: any, i: number) => (
+              <li key={i}>{e.label}: {(e.confidence * 100).toFixed(1)}%</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {logOutput && <pre>{logOutput}</pre>}
+    </div>
+  );
   }
 }
