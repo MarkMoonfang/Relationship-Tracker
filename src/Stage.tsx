@@ -5,7 +5,7 @@ import { Client } from "@gradio/client";
 
 // Define the shape of our state and config
 
-type MessageStateType = { [key: string]: number };
+type MessageStateType = { affection: { [key: string]: number } };
 type ConfigType = any;
 type InitStateType = any;
 type ChatStateType = any;
@@ -23,7 +23,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       messageState
     } = data;
     this.charactersMap = characters;
-    this.myInternalState = messageState != null ? messageState : {};
+    this.myInternalState = messageState != null ? messageState : { affection: {} };
     this.myInternalState['numUsers'] = Object.keys(users).length;
     this.myInternalState['numChars'] = Object.keys(characters).length;
     this.myInternalState['affection'] = this.myInternalState['affection'] ?? {};
@@ -125,7 +125,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
     return {
       stageDirections: directions.join('\n'),
-      messageState:  affection ,
+      messageState: { affection },
       chatState: null,
       systemMessage: null,
       error: null
@@ -146,20 +146,16 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         param_0: content,
       });
 
-      const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences;
-        logs.push("RAW EMOTIONS:");
-            for (const e of allEmotions) {
-        logs.push(`${e.label}: ${(e.confidence * 100).toFixed(1)}%`);
-        } 
-        if (!allEmotions || allEmotions.length === 0) {
-            logs.push("No emotions returned by pipeline.");
-            }
-      const filtered = allEmotions.filter(e => e.confidence >= 0.25);
-      const primary = filtered.map(e => e.label);
+      const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences.map((e: any) => ({
+        label: e.label,
+        confidence: parseFloat(e.confidence)
+      }));
+
+      const filtered = allEmotions.filter((e) => e.confidence >= 0.25);
+      const primary = filtered.map((e) => e.label);
 
       const usedCombos = new Set<string>();
 
-      // Combo logic
       for (let i = 0; i < primary.length; i++) {
         for (let j = i + 1; j < primary.length; j++) {
           const comboKey = `${primary[i]}+${primary[j]}`;
@@ -178,12 +174,11 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         const key = emotion.label.toLowerCase();
         if (!usedCombos.has(key)) {
           const weight = this.emotionWeights[key] ?? 0;
-          const score = weight * emotion.confidence;
-          delta += score;
-          logs.push(`${key}: ${weight} × ${emotion.confidence.toFixed(2)} → ${score.toFixed(2)}`);
+          delta += weight;
+          logs.push(`${key}: +${weight}`);
         }
       }
-    } catch (e: unknown) {
+    } catch (e: any) {
       console.warn("Emotion classification failed", e);
       logs.push("Emotion classification failed");
     }
@@ -194,7 +189,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n");
 
     return {
-      messageState:  affection ,
+      messageState: { affection },
       chatState: null,
       systemMessage: null,
       error: null
@@ -204,7 +199,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   render(): ReactElement {
     const affection = this.myInternalState['affection'] ?? {};
     const affectionDisplay = Object.entries(affection).map(([charId, score]) => (
-      <p key={charId}><strong>{this.charactersMap?.[charId]?.name ?? charId}</strong>: {score as number}</p>
+      <p key={charId}><strong>{this.charactersMap?.[charId]?.name ?? charId}</strong>: {String(score)}</p>
     ));
 
     const logOutput = this.myInternalState['affectionLog'] ?? null;
