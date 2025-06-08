@@ -3,9 +3,48 @@ import { StageBase, StageResponse, InitialData, Message } from "@chub-ai/stages-
 import { LoadResponse } from "@chub-ai/stages-ts/dist/types/load";
 import { Client } from "@gradio/client";
 
-// Define the shape of our state and config
+// Utility function for combo & weight logic (CHANGE 7)
+function calculateEmotionDelta(
+  emotions: { label: string; confidence: number }[],
+  emotionWeights: { [key: string]: number },
+  emotionCombos: { [key: string]: number },
+  logs: string[]
+): number {
+  let delta = 0;
+  const filtered = emotions.filter((e) => e.confidence >= 0.25);
+  const primary = filtered.map(e => e.label);
+  const usedCombos = new Set<string>();
 
-type MessageStateType = { affection: { [key: string]: number } };
+  for (let i = 0; i < primary.length; i++) {
+    for (let j = i + 1; j < primary.length; j++) {
+      const comboKey = [primary[i], primary[j]].sort().join("+"); // CHANGE 6
+      const comboBonus = emotionCombos[comboKey];
+      if (comboBonus !== undefined) {
+        delta += comboBonus;
+        usedCombos.add(primary[i]);
+        usedCombos.add(primary[j]);
+        logs.push(`Using combo: ${comboKey} = ${comboBonus}`);
+      }
+    }
+  }
+
+  for (const emotion of filtered) {
+    const key = emotion.label.toLowerCase();
+    if (!usedCombos.has(key)) {
+      const weight = emotionWeights[key] ?? 0;
+      delta += weight;
+      logs.push(`Adding ${key}: ${weight}`);
+    }
+  }
+
+  return Math.round(Math.max(-4, Math.min(4, delta)));
+}
+
+type MessageStateType = {
+  affection: { [userId: string]: { [botId: string]: number } };
+  emotionBreakdown?: { [botId: string]: { label: string; confidence: number }[] };
+  affectionLog?: string;
+};
 type ConfigType = any;
 type InitStateType = any;
 type ChatStateType = any;
@@ -14,19 +53,18 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   myInternalState: { [key: string]: any };
   private charactersMap: { [id: string]: any } = {};
   private emotionClient: any = null;
+  private initialData: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType>;
+
 
   constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType>) {
     super(data);
-    const {
-      characters,
-      users,
-      messageState
-    } = data;
+    const { characters, users, messageState } = data;
     this.charactersMap = characters;
     this.myInternalState = messageState != null ? messageState : { affection: {} };
     this.myInternalState['numUsers'] = Object.keys(users).length;
     this.myInternalState['numChars'] = Object.keys(characters).length;
     this.myInternalState['affection'] = this.myInternalState['affection'] ?? {};
+    this.initialData = data;
   }
 
   private clampAffection(value: number): number {
@@ -55,34 +93,13 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   }
 
   private emotionWeights: { [key: string]: number } = {
-    admiration: 1,
-    amusement: 1,
-    anger: -2,
-    annoyance: -1,
-    approval: 2,
-    caring: 2,
-    confusion: -1,
-    curiosity: 1,
-    desire: 1,
-    disappointment: -2,
-    disapproval: -2,
-    disgust: -3,
-    embarrassment: -1,
-    excitement: 1,
-    fear: -2,
-    gratitude: 2,
-    grief: -2,
-    joy: 3,
-    love: 3,
-    nervousness: -1,
-    optimism: 2,
-    pride: 1,
-    realization: 1,
-    relief: 1,
-    remorse: -1,
-    sadness: -1,
-    surprise: 0,
-    neutral: 0,
+    admiration: 1, amusement: 1, anger: -2, annoyance: -1,
+    approval: 2, caring: 2, confusion: -1, curiosity: 1,
+    desire: 1, disappointment: -2, disapproval: -2, disgust: -3,
+    embarrassment: -1, excitement: 1, fear: -2, gratitude: 2,
+    grief: -2, joy: 3, love: 3, nervousness: -1, optimism: 2,
+    pride: 1, realization: 1, relief: 1, remorse: -1,
+    sadness: -1, surprise: 0, neutral: 0
   };
 
   private emotionCombos: { [key: string]: number } = {
@@ -100,26 +117,27 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   };
 
   async beforePrompt(userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-    const affection: { [id: string]: number } = this.myInternalState['affection'] ?? {};
+    const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
     const characters = Object.keys(this.charactersMap);
     const directions: string[] = [];
 
     for (const charId of characters) {
-      if (!(charId in affection)) affection[charId] = 50;
-      const score = affection[charId];
+      for (const userId of Object.keys(affection)) {
+        const score = affection[userId][charId] ?? 50;
 
-      if (score < 25) {
-        directions.push(`{{char:${charId}}} keeps a clear emotional distance from {{user}}, masking distrust behind short or guarded responses.`);
-      } else if (score < 45) {
-        directions.push(`{{char:${charId}}} responds warily, showing signs of tension and hesitation around {{user}}.`);
-      } else if (score <= 55) {
-        directions.push(`{{char:${charId}}} behaves according to their default personality, unaffected by {{user}} yet.`);
-      } else if (score <= 74) {
-        directions.push(`{{char:${charId}}} shows brief moments of warmth or trust, glancing at {{user}} with softening eyes or a relaxed posture.`);
-      } else if (score <= 89) {
-        directions.push(`{{char:${charId}}} treats {{user}} as a trusted companion, responding with vulnerability or emotional openness.`);
-      } else {
-        directions.push(`{{char:${charId}}} looks to {{user}} with deep emotional reliance, visibly more relaxed and willing to engage closely.`);
+        if (score < 25) {
+          directions.push(`{{char:${charId}}} keeps a clear emotional distance from {{user}}, masking distrust behind short or guarded responses.`);
+        } else if (score < 45) {
+          directions.push(`{{char:${charId}}} responds warily, showing signs of tension and hesitation around {{user}}.`);
+        } else if (score <= 55) {
+          directions.push(`{{char:${charId}}} behaves according to their default personality, unaffected by {{user}} yet.`);
+        } else if (score <= 74) {
+          directions.push(`{{char:${charId}}} shows brief moments of warmth or trust, glancing at {{user}} with softening eyes or a relaxed posture.`);
+        } else if (score <= 89) {
+          directions.push(`{{char:${charId}}} treats {{user}} as a trusted companion, responding with vulnerability or emotional openness.`);
+        } else {
+          directions.push(`{{char:${charId}}} looks to {{user}} with deep emotional reliance, visibly more relaxed and willing to engage closely.`);
+        }
       }
     }
 
@@ -135,12 +153,15 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
     const content = botMessage.content.toLowerCase();
     const botId = botMessage.anonymizedId;
-    const affection: { [id: string]: number } = this.myInternalState['affection'] ?? {};
+    const userId = Object.keys(this.initialData.users)[0] ?? "default"; // ✅ FIXED
+
+    const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
     const logs: string[] = [];
 
-    if (!(botId in affection)) affection[botId] = 50;
+    if (!(userId in affection)) affection[userId] = {};
+    if (!(botId in affection[userId])) affection[userId][botId] = 50;
 
-    let delta = 0;
+
     try {
       const prediction = await this.emotionClient.predict("/predict", {
         param_0: content,
@@ -148,54 +169,33 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
       const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences.map((e: any) => ({
         label: e.label,
-        confidence: typeof e.confidence === "number" ? e.confidence : parseFloat(String(e.confidence))
-    }));
+        confidence: typeof e.confidence === 'number' ? e.confidence : parseFloat(e.confidence)
+      }));
 
-    logs.push("RAW EMOTIONS:");
-    for (const emo of allEmotions) {
+      logs.push("RAW EMOTIONS:");
+      for (const emo of allEmotions) {
         logs.push(`${emo.label}: ${(emo.confidence * 100).toFixed(1)}%`);
-    }
-
+      }
 
       const filtered = allEmotions.filter((e) => e.confidence >= 0.25);
       logs.push("\nFILTERED (≥25% confidence):");
       logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
 
-      const primary = filtered.map((e) => e.label);
+      // CHANGE 3 - Track filtered emotions per bot
+      this.myInternalState['emotionBreakdown'] ??= {};
+      this.myInternalState['emotionBreakdown'][botId] = filtered;
 
-      const usedCombos = new Set<string>();
+      // CHANGE 7 - Use utility function
+      const delta = calculateEmotionDelta(filtered, this.emotionWeights, this.emotionCombos, logs);
 
-      for (let i = 0; i < primary.length; i++) {
-        for (let j = i + 1; j < primary.length; j++) {
-          const comboKey = `${primary[i]}+${primary[j]}`;
-          const reverseKey = `${primary[j]}+${primary[i]}`;
-          const comboBonus = this.emotionCombos[comboKey] ?? this.emotionCombos[reverseKey];
-          if (comboBonus !== undefined) {
-            delta += comboBonus;
-            usedCombos.add(primary[i]);
-            usedCombos.add(primary[j]);
-            logs.push(`Using combo: ${comboKey} = ${comboBonus}`);
-          }
-        }
-      }
+      affection[userId][botId] = this.clampAffection(affection[userId][botId] + delta);
 
-      for (const emotion of filtered) {
-        const key = emotion.label.toLowerCase();
-        if (!usedCombos.has(key)) {
-          const weight = this.emotionWeights[key] ?? 0;
-          delta += weight;
-         logs.push
-        }
-      }
+      this.myInternalState['affection'] = affection;
+      this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[userId][botId]}]\n` + logs.join("\n");
     } catch (e: any) {
       console.warn("Emotion classification failed", e);
       logs.push("Emotion classification failed");
     }
-
-    delta = Math.round(Math.max(-4, Math.min(4, delta)));
-    affection[botId] = this.clampAffection(affection[botId] + delta);
-    this.myInternalState['affection'] = affection;
-    this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n");
 
     return {
       messageState: { affection },
@@ -206,10 +206,12 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   }
 
   render(): ReactElement {
-    const affection = this.myInternalState['affection'] ?? {};
-    const affectionDisplay = Object.entries(affection).map(([charId, score]) => (
-      <p key={charId}><strong>{this.charactersMap?.[charId]?.name ?? charId}</strong>: {String(score)}</p>
-    ));
+    const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
+    const affectionDisplay = Object.entries(affection).flatMap(([userId, bots]) =>
+      Object.entries(bots).map(([charId, score]) => (
+        <p key={`${userId}-${charId}`}><strong>{this.charactersMap?.[charId]?.name ?? charId}</strong>: {String(score)} (user: {userId})</p>
+      ))
+    );
 
     const logOutput = this.myInternalState['affectionLog'] ?? null;
 
