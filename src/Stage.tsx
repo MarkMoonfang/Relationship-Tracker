@@ -4,7 +4,7 @@ import { LoadResponse } from "@chub-ai/stages-ts/dist/types/load";
 import { Client } from "@gradio/client";
 
 type MessageStateType = {
-  affection: { [userId: string]: { [botId: string]: number } };
+  affection: { [botId: string]: number };
   emotionBreakdown?: { [botId: string]: { label: string; confidence: number }[] };
   affectionLog?: string;
   narratorEmotionLog?: { speaker: string; emotions: { label: string; confidence: number }[] };
@@ -22,11 +22,10 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
   constructor(data: InitialData<InitStateType, ChatStateType, MessageStateType, ConfigType>) {
     super(data);
-    const { characters, users, messageState } = data;
+    const { characters, messageState } = data;
     this.charactersMap = characters;
     this.initialData = data;
     this.myInternalState = messageState ?? { affection: {} };
-    this.myInternalState['numUsers'] = Object.keys(users).length;
     this.myInternalState['numChars'] = Object.keys(characters).length;
     this.myInternalState['affection'] = this.myInternalState['affection'] ?? {};
   }
@@ -71,7 +70,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     "sadness+grief": -3,
     "surprise+gratitude": 2,
     "surprise+joy": 2,
-    "approval+pride": 2,
+    "approval+pride": 2
   };
 
   async setState(state: MessageStateType): Promise<void> {
@@ -82,26 +81,23 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
   async beforePrompt(userMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
     const affection = this.myInternalState['affection'] ?? {};
-    const characters = Object.keys(this.charactersMap);
     const directions: string[] = [];
 
-    for (const charId of characters) {
-      for (const userId of Object.keys(affection)) {
-        const score = affection[userId][charId] ?? 50;
+    for (const charId of Object.keys(this.charactersMap)) {
+      const score = affection[charId] ?? 50;
 
-        if (score < 25) {
-          directions.push(`{{char:${charId}}} keeps a clear emotional distance from {{user}}, masking distrust behind short or guarded responses.`);
-        } else if (score < 45) {
-          directions.push(`{{char:${charId}}} responds warily, showing signs of tension and hesitation around {{user}}.`);
-        } else if (score <= 55) {
-          directions.push(`{{char:${charId}}} behaves according to their default personality, unaffected by {{user}} yet.`);
-        } else if (score <= 74) {
-          directions.push(`{{char:${charId}}} shows brief moments of warmth or trust, glancing at {{user}} with softening eyes or a relaxed posture.`);
-        } else if (score <= 89) {
-          directions.push(`{{char:${charId}}} treats {{user}} as a trusted companion, responding with vulnerability or emotional openness.`);
-        } else {
-          directions.push(`{{char:${charId}}} looks to {{user}} with deep emotional reliance, visibly more relaxed and willing to engage closely.`);
-        }
+      if (score < 25) {
+        directions.push(`{{char:${charId}}} keeps a clear emotional distance from {{user}}, masking distrust behind short or guarded responses.`);
+      } else if (score < 45) {
+        directions.push(`{{char:${charId}}} responds warily, showing signs of tension and hesitation around {{user}}.`);
+      } else if (score <= 55) {
+        directions.push(`{{char:${charId}}} behaves according to their default personality, unaffected by {{user}} yet.`);
+      } else if (score <= 74) {
+        directions.push(`{{char:${charId}}} shows brief moments of warmth or trust, glancing at {{user}} with softening eyes or a relaxed posture.`);
+      } else if (score <= 89) {
+        directions.push(`{{char:${charId}}} treats {{user}} as a trusted companion, responding with vulnerability or emotional openness.`);
+      } else {
+        directions.push(`{{char:${charId}}} looks to {{user}} with deep emotional reliance, visibly more relaxed and willing to engage closely.`);
       }
     }
 
@@ -115,11 +111,10 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   }
 
   async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-    const content = botMessage.content.toLowerCase();
+    const content = botMessage.content?.trim();
     const botId = botMessage.anonymizedId;
-    const userId = Object.keys(this.initialData.users)[0] ?? "default";
 
-    const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
+    const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
     const logs: string[] = [];
 
     const rawName = (botMessage as any)?.name ?? "";
@@ -131,13 +126,20 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
     this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;
 
+    // 🛑 Skip blank/system intro messages
+    if (!content) {
+      logs.push("⏩ Skipping empty or system-init message.");
+      this.myInternalState['affectionLog'] = logs.join("\n");
+      return { messageState: { affection }, chatState: null };
+    }
+
     try {
       const prediction = await this.emotionClient.predict("/predict", { param_0: content });
 
       const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences
         .map((e: any): { label: string; confidence: number } => ({
           label: e.label,
-          confidence: typeof e.score === "number" ? e.score : parseFloat(e.score ?? "0")
+          confidence: typeof e.confidence === "number" ? e.confidence : parseFloat(e.confidence ?? "0")
         }))
         .filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
 
@@ -152,20 +154,15 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
       logs.push("\nFILTERED (≥1% confidence, excluding neutral):");
       logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
-      logs.push("DEBUG RAW EMOTION RESPONSE:");
-      logs.push(JSON.stringify(prediction.data[0], null, 2));
-
 
       this.myInternalState['emotionBreakdown'] ??= {};
       this.myInternalState['emotionBreakdown'][botId] = filtered;
 
       if (!isNarrator) {
-        if (!(userId in affection)) affection[userId] = {};
-        if (!(botId in affection[userId])) affection[userId][botId] = 50;
+        if (!(botId in affection)) affection[botId] = 50;
 
         let delta = 0;
 
-        // combo logic
         for (let i = 0; i < primary.length; i++) {
           for (let j = i + 1; j < primary.length; j++) {
             const sortedCombo = [primary[i], primary[j]].sort().join("+");
@@ -179,7 +176,6 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
           }
         }
 
-        // remaining weights
         for (const emotion of filtered) {
           const key = emotion.label.toLowerCase();
           if (!usedCombos.has(key)) {
@@ -190,11 +186,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         }
 
         delta = Math.max(-4, Math.min(4, Math.round(delta)));
-
-        affection[userId][botId] = this.clampAffection(affection[userId][botId] + delta);
+        affection[botId] = this.clampAffection(affection[botId] + delta);
         this.myInternalState['affection'] = affection;
-        this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[userId][botId]}]\n` + logs.join("\n");
-
+        this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n");
       } else {
         logs.push("📎 Narrator message — affection unchanged.");
         this.myInternalState['narratorEmotionLog'] = {
@@ -218,16 +212,14 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   }
 
   render(): ReactElement {
-    const affection: { [userId: string]: { [botId: string]: number } } = this.myInternalState['affection'] ?? {};
-    const affectionDisplay = Object.entries(affection).flatMap(([userId, bots]) =>
-      Object.entries(bots)
-        .filter(([charId]) => !!this.charactersMap?.[charId])
-        .map(([charId, score]) => (
-          <p key={`${userId}-${charId}`}>
-            <strong>{this.charactersMap[charId].name}</strong>: {String(score)} (user: {userId})
-          </p>
-        ))
-    );
+    const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
+    const affectionDisplay = Object.entries(affection)
+      .filter(([charId]) => !!this.charactersMap?.[charId])
+      .map(([charId, score]) => (
+        <p key={charId}>
+          <strong>{this.charactersMap[charId].name}</strong>: {String(score)}
+        </p>
+      ));
 
     const logOutput = this.myInternalState['affectionLog'] ?? null;
     const narratorEmotionLog = this.myInternalState['narratorEmotionLog'] ?? null;
@@ -236,9 +228,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       <div className="your-stage-wrapper">
         <h2>Relationship Tracker</h2>
         <p>
-          There {this.myInternalState['numUsers'] === 1 ? 'is' : 'are'}{' '}
-          {this.myInternalState['numUsers']} human{this.myInternalState['numUsers'] !== 1 ? 's' : ''} and{' '}
-          {this.myInternalState['numChars']} bot{this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
+          There are {this.myInternalState['numChars']} bot
+          {this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
         </p>
 
         {affectionDisplay}
@@ -255,8 +246,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             <p>Speaker: <code>{narratorEmotionLog.speaker}</code></p>
             <ul>
               {narratorEmotionLog.emotions.map((e: { label: string; confidence: number }, i: number) => (
-  <li key={i}>{e.label}: {(e.confidence * 100).toFixed(1)}%</li>
-))}
+                <li key={i}>{e.label}: {(e.confidence * 100).toFixed(1)}%</li>
+              ))}
             </ul>
           </div>
         )}
