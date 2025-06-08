@@ -148,10 +148,19 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
       const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences.map((e: any) => ({
         label: e.label,
-        confidence: parseFloat(e.confidence)
-      }));
+        confidence: typeof e.confidence === "number" ? e.confidence : parseFloat(String(e.confidence))
+    }));
+
+    logs.push("RAW EMOTIONS:");
+    for (const emo of allEmotions) {
+        logs.push(`${emo.label}: ${(emo.confidence * 100).toFixed(1)}%`);
+    }
+
 
       const filtered = allEmotions.filter((e) => e.confidence >= 0.25);
+      logs.push("\nFILTERED (≥25% confidence):");
+      logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
+
       const primary = filtered.map((e) => e.label);
 
       const usedCombos = new Set<string>();
@@ -165,7 +174,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             delta += comboBonus;
             usedCombos.add(primary[i]);
             usedCombos.add(primary[j]);
-            logs.push(`Combo ${comboKey} → ${comboBonus}`);
+            logs.push(`Using combo: ${comboKey} = ${comboBonus}`);
           }
         }
       }
@@ -175,7 +184,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
         if (!usedCombos.has(key)) {
           const weight = this.emotionWeights[key] ?? 0;
           delta += weight;
-          logs.push(`${key}: +${weight}`);
+         logs.push
         }
       }
     } catch (e: any) {
