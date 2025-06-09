@@ -24,6 +24,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     super(data);
     const { characters, messageState } = data;
     this.charactersMap = characters;
+    this.charactersMap = data.characters ?? {};
     this.initialData = data;
     this.myInternalState = messageState ?? { affection: {} };
     this.myInternalState['numChars'] = Object.keys(characters).length;
@@ -112,7 +113,13 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
   async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
   const content = botMessage.content?.trim();
-  const botId = botMessage.anonymizedId;
+  const botId =
+  botMessage.anonymizedId ??
+  (botMessage as any)?.id ??
+  (botMessage as any)?.name ??
+  "unknown";
+  console.warn("💡 DEBUG botMessage:", botMessage);
+  console.warn("💡 Calculated botId:", botId);
   const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
   const logs: string[] = [];
 
