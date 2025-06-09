@@ -111,116 +111,120 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   }
 
   async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-    const content = botMessage.content?.trim();
-    const botId = botMessage.anonymizedId;
+  const content = botMessage.content?.trim();
+  const botId = botMessage.anonymizedId;
+  const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
+  const logs: string[] = [];
 
-    const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
-    const logs: string[] = [];
+  const rawName = (botMessage as any)?.name ?? "";
+  const metadata = (botMessage as any)?.metadata ?? {};
+  const isNarrator =
+    rawName.toLowerCase().includes("narrator") ||
+    rawName.toLowerCase().includes("system") ||
+    metadata?.role === "narrator";
 
-    const rawName = (botMessage as any)?.name ?? "";
-    const metadata = (botMessage as any)?.metadata ?? {};
-    const isNarrator =
-      rawName.toLowerCase().includes("narrator") ||
-      rawName.toLowerCase().includes("system") ||
-      metadata?.role === "narrator";
+  const isSystemMessage = (botMessage as any)?.isSystem === true;
 
-    this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;
+  this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;
 
-    // 🛑 Skip blank/system intro messages
-    if (!content) {
-      logs.push("⏩ Skipping empty or system-init message.");
-      this.myInternalState['affectionLog'] = logs.join("\n");
-      return { messageState: { affection }, chatState: null };
-    }
-
-    try {
-      const prediction = await this.emotionClient.predict("/predict", { param_0: content });
-
-      const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences
-        .map((e: any): { label: string; confidence: number } => ({
-          label: e.label,
-          confidence: typeof e.confidence === "number" ? e.confidence : parseFloat(e.confidence ?? "0")
-        }))
-        .filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
-
-      const filtered = allEmotions.filter(e => e.confidence >= 0.01 && e.label !== "neutral");
-      const primary = filtered.map(e => e.label);
-      const usedCombos = new Set<string>();
-
-      logs.push("RAW EMOTIONS:");
-      for (const emo of allEmotions) {
-        logs.push(`${emo.label}: ${(emo.confidence * 100).toFixed(1)}%`);
-      }
-
-      logs.push("\nFILTERED (≥1% confidence, excluding neutral):");
-      logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
-
-      this.myInternalState['emotionBreakdown'] ??= {};
-      this.myInternalState['emotionBreakdown'][botId] = filtered;
-
-      if (!isNarrator) {
-        if (!(botId in affection)) affection[botId] = 50;
-
-        let delta = 0;
-
-        for (let i = 0; i < primary.length; i++) {
-          for (let j = i + 1; j < primary.length; j++) {
-            const sortedCombo = [primary[i], primary[j]].sort().join("+");
-            const comboBonus = this.emotionCombos[sortedCombo];
-            if (comboBonus !== undefined) {
-              delta += comboBonus;
-              usedCombos.add(primary[i]);
-              usedCombos.add(primary[j]);
-              logs.push(`Combo: ${sortedCombo} = ${comboBonus}`);
-            }
-          }
-        }
-
-        for (const emotion of filtered) {
-          const key = emotion.label.toLowerCase();
-          if (!usedCombos.has(key)) {
-            const weight = this.emotionWeights[key] ?? 0;
-            delta += weight;
-            logs.push(`Adding ${key}: ${weight}`);
-          }
-        }
-
-        delta = Math.max(-4, Math.min(4, Math.round(delta)));
-        affection[botId] = this.clampAffection(affection[botId] + delta);
-        this.myInternalState['affection'] = affection;
-        this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n");
-      } else {
-        logs.push("📎 Narrator message — affection unchanged.");
-        this.myInternalState['narratorEmotionLog'] = {
-          speaker: rawName || botId || "Unknown",
-          emotions: filtered,
-        };
-        this.myInternalState['affectionLog'] = logs.join("\n");
-      }
-
-    } catch (err) {
-      logs.push("❌ Emotion classification failed");
-      this.myInternalState['affectionLog'] = logs.join("\n");
-    }
-
-    return {
-      messageState: { affection },
-      chatState: null,
-      systemMessage: null,
-      error: null
-    };
+  // ✅ Skip empty, narrator, or system messages
+  if (!content || isNarrator || isSystemMessage) {
+    logs.push("⏩ Skipping system/narrator/empty message.");
+    this.myInternalState['affectionLog'] = logs.join("\n");
+    return { messageState: { affection }, chatState: null };
   }
+
+  // ✅ Skip if botId not in characters
+  if (!botId || !this.charactersMap?.[botId]) {
+    logs.push(`⏩ Skipping unknown botId: ${botId}`);
+    this.myInternalState['affectionLog'] = logs.join("\n");
+    return { messageState: { affection }, chatState: null };
+  }
+
+  try {
+    const prediction = await this.emotionClient.predict("/predict", { param_0: content });
+
+    const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences
+      .map((e: any): { label: string; confidence: number } => ({
+        label: e.label,
+        confidence: typeof e.confidence === "number" ? e.confidence : parseFloat(e.confidence ?? "0")
+      }))
+      .filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
+
+    const filtered = allEmotions.filter(e => e.confidence >= 0.01 && e.label !== "neutral");
+    const primary = filtered.map(e => e.label);
+    const usedCombos = new Set<string>();
+
+    logs.push("RAW EMOTIONS:");
+    for (const emo of allEmotions) {
+      logs.push(`${emo.label}: ${(emo.confidence * 100).toFixed(1)}%`);
+    }
+
+    logs.push("\nFILTERED (≥1% confidence, excluding neutral):");
+    logs.push(filtered.map(e => `${e.label} (${(e.confidence * 100).toFixed(1)}%)`).join(", "));
+
+    this.myInternalState['emotionBreakdown'] ??= {};
+    this.myInternalState['emotionBreakdown'][botId] = filtered;
+
+    if (!(botId in affection)) affection[botId] = 50;
+
+    let delta = 0;
+
+    for (let i = 0; i < primary.length; i++) {
+      for (let j = i + 1; j < primary.length; j++) {
+        const sortedCombo = [primary[i], primary[j]].sort().join("+");
+        const comboBonus = this.emotionCombos[sortedCombo];
+        if (comboBonus !== undefined) {
+          delta += comboBonus;
+          usedCombos.add(primary[i]);
+          usedCombos.add(primary[j]);
+          logs.push(`Combo: ${sortedCombo} = ${comboBonus}`);
+        }
+      }
+    }
+
+    for (const emotion of filtered) {
+      const key = emotion.label.toLowerCase();
+      if (!usedCombos.has(key)) {
+        const weight = this.emotionWeights[key] ?? 0;
+        delta += weight;
+        logs.push(`Adding ${key}: ${weight}`);
+      }
+    }
+
+    delta = Math.max(-4, Math.min(4, Math.round(delta)));
+    affection[botId] = this.clampAffection(affection[botId] + delta);
+    this.myInternalState['affection'] = affection;
+    this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n");
+
+  } catch (err) {
+    logs.push("❌ Emotion classification failed");
+    this.myInternalState['affectionLog'] = logs.join("\n");
+  }
+
+  return {
+    messageState: { affection },
+    chatState: null,
+    systemMessage: null,
+    error: null
+  };
+}
+
 
   render(): ReactElement {
     const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
-    console.log("🔍 Affection in render:", this.myInternalState['affection']);
-    const affectionDisplay = Object.entries(affection)
-      .filter(([charId]) => !!this.charactersMap?.[charId])
-      .map(([charId, score]) => (
-        <p key={charId}>
-          <strong>{this.charactersMap[charId].name}</strong>: {String(score)}
-        </p>
-      ));
+const affectionDisplay = Object.entries(affection)
+  .filter(([charId]) => {
+    const found = !!this.charactersMap?.[charId];
+    if (!found) console.warn("⚠️ Unknown botId in affection:", charId);
+    return found;
+  })
+  .map(([charId, score]) => (
+    <p key={charId}>
+      <strong>{this.charactersMap[charId]?.name ?? charId}</strong>: {typeof score === "number" ? score : JSON.stringify(score)}
+    </p>
+  ));
+
 
     const logOutput = this.myInternalState['affectionLog'] ?? null;
     const narratorEmotionLog = this.myInternalState['narratorEmotionLog'] ?? null;
