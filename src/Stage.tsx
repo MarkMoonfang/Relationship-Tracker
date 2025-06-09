@@ -150,12 +150,13 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     console.log("🐛 FULL prediction response:", prediction);
 
 
-    const allEmotions: EmotionResult[] = prediction.data
-    .map((e: any): EmotionResult => ({
+    const allEmotions: { label: string; confidence: number }[] = prediction.data
+    .map((e: any): { label: string; confidence: number } => ({
       label: e.label,
       confidence: typeof e.score === "number" ? e.score : parseFloat(e.score ?? "0")
-    }))
-    .filter((e: EmotionResult) => !isNaN(e.confidence));
+     }))
+   .filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
+
 
       console.log("🐛 RAW PREDICTION OUTPUT:", prediction);
 
