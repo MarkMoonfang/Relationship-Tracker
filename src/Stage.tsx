@@ -213,6 +213,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
   render(): ReactElement {
     const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
+    console.log("🔍 Affection in render:", this.myInternalState['affection']);
     const affectionDisplay = Object.entries(affection)
       .filter(([charId]) => !!this.charactersMap?.[charId])
       .map(([charId, score]) => (
@@ -223,6 +224,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
     const logOutput = this.myInternalState['affectionLog'] ?? null;
     const narratorEmotionLog = this.myInternalState['narratorEmotionLog'] ?? null;
+    console.log("Affection object:", affection);
 
     return (
       <div className="your-stage-wrapper">
@@ -251,6 +253,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
             </ul>
           </div>
         )}
+        
 
         {logOutput && <pre>{logOutput}</pre>}
       </div>
