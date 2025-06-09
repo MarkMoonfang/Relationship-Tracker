@@ -13,6 +13,11 @@ type MessageStateType = {
 type ConfigType = any;
 type InitStateType = any;
 type ChatStateType = any;
+type EmotionResult = {
+  label: string;
+  confidence: number;
+};
+
 
 export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateType, ConfigType> {
   myInternalState: { [key: string]: any };
@@ -112,9 +117,8 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   }
 
   async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-   const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
-   const logs: string[] = [];
    const content = botMessage.content?.trim();
+   const rawName = (botMessage as any)?.name ?? "";
    const metadata = (botMessage as any)?.metadata ?? {};
    const botId =
     botMessage.anonymizedId ??
@@ -122,30 +126,20 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     (botMessage as any)?.id ??
     (botMessage as any)?.name ??
     "unknown";
+
+   const isNarrator = metadata.role === "narrator" || metadata.role === "system";
+   const isSystemMessage = (botMessage as any)?.isSystem === true;
+
+   const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
+   const logs: string[] = [];
+   
+   this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;
+   
    console.warn("🧠 DEBUG botId:", botId);
    console.warn("📦 DEBUG metadata:", metadata);
-  if (!botId || botId === "unknown") {
-  logs.push(`⏩ Skipping message with missing botId`);
-  this.myInternalState['affectionLog'] = logs.join("\n");
-  return { messageState: { affection }, chatState: null };
-  }
-  
- 
-  const rawName = (botMessage as any)?.name ?? "";
-  const isNarrator = metadata.role === "narrator" || metadata.role === "system";
-  const isSystemMessage = (botMessage as any)?.isSystem === true;
-  this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;
 
-  // ✅ Skip empty, narrator, or system messages
-  if (!content || isNarrator || isSystemMessage) {
-    logs.push("⏩ Skipping system/narrator/empty message.");
-    this.myInternalState['affectionLog'] = logs.join("\n");
-    return { messageState: { affection }, chatState: null };
-  }
-
-  // ✅ Skip if botId not in characters
-  if (!botId || !this.charactersMap?.[botId]) {
-    logs.push(`⏩ Skipping unknown botId: ${botId}`);
+   if (!content || isNarrator || isSystemMessage || !botId || botId === "unknown") {
+    logs.push("⏩ Skipping system/narrator/empty/missing-botId message.");
     this.myInternalState['affectionLog'] = logs.join("\n");
     return { messageState: { affection }, chatState: null };
   }
@@ -153,12 +147,14 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   try {
     const prediction = await this.emotionClient.predict("/predict", { param_0: content });
 
-    const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences
-      .map((e: any): { label: string; confidence: number } => ({
-        label: e.label,
-        confidence: typeof e.confidence === "number" ? e.confidence : parseFloat(e.confidence ?? "0")
-      }))
-      .filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
+    const allEmotions: EmotionResult[] = prediction.data
+    .map((e: any): EmotionResult => ({
+      label: e.label,
+      confidence: typeof e.score === "number" ? e.score : parseFloat(e.score ?? "0")
+    }))
+    .filter((e: EmotionResult) => !isNaN(e.confidence));
+
+      console.log("🐛 RAW PREDICTION OUTPUT:", prediction);
 
     const filtered = allEmotions.filter(e => e.confidence >= 0.01 && e.label !== "neutral");
     const primary = filtered.map(e => e.label);
