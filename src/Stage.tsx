@@ -146,6 +146,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
   try {
     const prediction = await this.emotionClient.predict("/predict", { param_0: content });
+    console.log("🧪 FULL prediction.data:", prediction.data);
+    console.log("🐛 FULL prediction response:", prediction);
+
 
     const allEmotions: EmotionResult[] = prediction.data
     .map((e: any): EmotionResult => ({
