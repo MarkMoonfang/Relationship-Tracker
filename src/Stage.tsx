@@ -112,26 +112,28 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
   }
 
   async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-  const content = botMessage.content?.trim();
-  const botId =
-  botMessage.anonymizedId ??
-  (botMessage as any)?.id ??
-  (botMessage as any)?.name ??
-  "unknown";
-  console.warn("💡 DEBUG botMessage:", botMessage);
-  console.warn("💡 Calculated botId:", botId);
-  const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
-  const logs: string[] = [];
-
+   const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
+   const logs: string[] = [];
+   const content = botMessage.content?.trim();
+   const metadata = (botMessage as any)?.metadata ?? {};
+   const botId =
+    botMessage.anonymizedId ??
+    metadata.characterId ??
+    (botMessage as any)?.id ??
+    (botMessage as any)?.name ??
+    "unknown";
+   console.warn("🧠 DEBUG botId:", botId);
+   console.warn("📦 DEBUG metadata:", metadata);
+  if (!botId || botId === "unknown") {
+  logs.push(`⏩ Skipping message with missing botId`);
+  this.myInternalState['affectionLog'] = logs.join("\n");
+  return { messageState: { affection }, chatState: null };
+  }
+  
+ 
   const rawName = (botMessage as any)?.name ?? "";
-  const metadata = (botMessage as any)?.metadata ?? {};
-  const isNarrator =
-    rawName.toLowerCase().includes("narrator") ||
-    rawName.toLowerCase().includes("system") ||
-    metadata?.role === "narrator";
-
+  const isNarrator = metadata.role === "narrator" || metadata.role === "system";
   const isSystemMessage = (botMessage as any)?.isSystem === true;
-
   this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;
 
   // ✅ Skip empty, narrator, or system messages
