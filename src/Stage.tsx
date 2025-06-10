@@ -150,15 +150,16 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     console.log("🐛 FULL prediction response:", prediction);
 
 
-    const allEmotions: { label: string; confidence: number }[] = prediction.data
-    .map((e: any): { label: string; confidence: number } => ({
-      label: e.label,
-      confidence: typeof e.score === "number" ? e.score : parseFloat(e.score ?? "0")
-     }))
-   .filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
+    const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences
+      .map((e: { label: string; score: number }) => ({
+        label: e.label,
+        confidence: e.score
+      }))
+      .filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
 
 
-      console.log("🐛 RAW PREDICTION OUTPUT:", prediction);
+     console.log("🧪 Ravenok response:", prediction.data);
+
 
     const filtered = allEmotions.filter(e => e.confidence >= 0.01 && e.label !== "neutral");
     const primary = filtered.map(e => e.label);
