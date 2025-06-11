@@ -7,7 +7,14 @@ type MessageStateType = {
   affection: { [botId: string]: number };
   emotionBreakdown?: { [botId: string]: { label: string; confidence: number }[] };
   affectionLog?: string;
-  narratorEmotionLog?: { speaker: string; emotions: { label: string; confidence: number }[] };
+  narratorEmotionLog?: {
+    speaker: string;
+    emotions: { label: string; confidence: number }[];
+    threshold: number;
+    filtered: { label: string; confidence: number }[];
+    comboMatches: { name: string; score: number; description: string }[];
+    usedComboLabels: string[];
+  };
   lastSpeakerIsNarrator?: boolean;
 };
 type ConfigType = any;
@@ -31,6 +38,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     this.myInternalState = messageState ?? { affection: {} };
     this.myInternalState['numChars'] = Object.keys(characters).length;
     this.myInternalState['affection'] = this.myInternalState['affection'] ?? {};
+    
   }
   async load(): Promise<Partial<LoadResponse<InitStateType, ChatStateType, MessageStateType>>> {
     try {
@@ -91,33 +99,35 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     };
   }
   async afterResponse(botMessage: Message): Promise<Partial<StageResponse<ChatStateType, MessageStateType>>> {
-   const content = botMessage.content?.trim();
-   const rawName = (botMessage as any)?.name ?? "";
-   const metadata = (botMessage as any)?.metadata ?? {};
-   const botId =
+  const content = botMessage.content?.trim();
+  const rawName = (botMessage as any)?.name ?? "";
+  const metadata = (botMessage as any)?.metadata ?? {};
+  const botId =
     botMessage.anonymizedId ??
     metadata.characterId ??
     (botMessage as any)?.id ??
     (botMessage as any)?.name ??
     "unknown";
-   const isNarrator = metadata.role === "narrator" || metadata.role === "system";
-   const isSystemMessage = (botMessage as any)?.isSystem === true;
-   const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
-   const logs: string[] = [];  
-   this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;   
-   console.warn("🧠 DEBUG botId:", botId);
-   console.warn("📦 DEBUG metadata:", metadata);
+  const isNarrator = metadata.role === "narrator" || metadata.role === "system";
+  const isSystemMessage = (botMessage as any)?.isSystem === true;
+  const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
+  const logs: string[] = [];
+  this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;
+  console.warn("🧠 DEBUG botId:", botId);
+  console.warn("📦 DEBUG metadata:", metadata);
 
-   if (!content || isNarrator || isSystemMessage || !botId || botId === "unknown") {
+  if (!content || isNarrator || isSystemMessage || !botId || botId === "unknown") {
     logs.push("⏩ Skipping system/narrator/empty/missing-botId message.");
     this.myInternalState['affectionLog'] = logs.join("\n");
     return { messageState: { affection }, chatState: null };
   }
+
   try {
     const prediction = await this.emotionClient.predict("/predict", { param_0: content });
     console.log("🧪 FULL prediction.data:", prediction.data);
-    console.log("🐛 FULL prediction response:", prediction);
-  let delta = 0;
+
+    let delta = 0;
+
     const allEmotions: { label: string; confidence: number }[] = prediction.data[0].confidences
       .map((e: { label: string; score: number }) => ({
         label: e.label,
@@ -125,87 +135,103 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       }))
       .filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
 
-
-     console.log("🧪 Ravenok response:", prediction.data);
-
-
     const filtered = allEmotions.filter(e => e.confidence >= 0.01 && e.label !== "neutral");
-    const primary = filtered.map(e => e.label);
     const usedCombos = new Set<string>();
-let comboScore = 0;
-for (const combo of emotionCombinations) {
-  const lowerLabels = filtered.map(e => e.label.toLowerCase());
-  const labelToScore: Record<string, number> = {};
-  filtered.forEach(e => labelToScore[e.label.toLowerCase()] = e.confidence);
+    const comboMatches: { name: string; score: number; description?: string }[] = [];
+    let comboScore = 0;
 
-  let allCorePresent = true;
-  let totalConfidence = 0;
+    for (const combo of emotionCombinations) {
+      const lowerLabels = filtered.map(e => e.label.toLowerCase());
+      const labelToScore: Record<string, number> = {};
+      filtered.forEach(e => labelToScore[e.label.toLowerCase()] = e.confidence);
 
-  for (const core of combo.core) {
-    const match = lowerLabels.includes(core.type.toLowerCase());
-    const score = labelToScore[core.type.toLowerCase()] ?? 0;
+      let allCorePresent = true;
+      let totalConfidence = 0;
 
-    if (!match || score < core.min) {
-      allCorePresent = false;
-      break;
-    } else {
-      totalConfidence += score;
+      for (const core of combo.core) {
+        const match = lowerLabels.includes(core.type.toLowerCase());
+        const score = labelToScore[core.type.toLowerCase()] ?? 0;
+
+        if (!match || score < core.min) {
+          allCorePresent = false;
+          break;
+        } else {
+          totalConfidence += score;
+        }
+      }
+
+      let allSupportValid = true;
+      if (combo.support) {
+        for (const support of combo.support) {
+          const match = lowerLabels.includes(support.type.toLowerCase());
+          const score = labelToScore[support.type.toLowerCase()] ?? 0;
+
+          if (!match || score < support.min) {
+            allSupportValid = false;
+            break;
+          } else {
+            totalConfidence += score;
+          }
+        }
+      }
+
+      const passesTotal = combo.requiredTotalScore
+        ? totalConfidence >= combo.requiredTotalScore
+        : true;
+
+      if (allCorePresent && allSupportValid && passesTotal) {
+        comboScore += combo.score;
+
+        comboMatches.push({
+          name: combo.name,
+          score: combo.score,
+          description: combo.description
+        });
+
+        combo.core.forEach(c => usedCombos.add(c.type.toLowerCase()));
+        combo.support?.forEach(s => usedCombos.add(s.type.toLowerCase()));
+
+        logs.push(`Combo: ${combo.name} (${[...combo.core.map(c => c.type), ...(combo.support?.map(s => s.type) ?? [])].join(' + ')})`);
+      }
     }
-  }
 
-  let allSupportValid = true; 
-  if (combo.support) {
-    for (const support of combo.support) {
-      const match = lowerLabels.includes(support.type.toLowerCase());
-      const score = labelToScore[support.type.toLowerCase()] ?? 0;
+    const individualEmotions = filtered.filter(e => !usedCombos.has(e.label.toLowerCase()));
+    for (const emotion of individualEmotions) {
+      const key = emotion.label.toLowerCase();
+      const weight = this.emotionWeights[key] ?? 0;
+      delta += weight;
+      logs.push(`Adding ${key}: ${weight}`);
+    }
 
-      if (!match || score < support.min) {
-        allSupportValid = false;
-        break;
-      } else {
-        totalConfidence += score;
-      } // Add support emotion confidence to total
-    } // Check support emotions if they exist
-  } // Check if all core emotions are present and valid
-
-  // Optional: future-proof with requiredTotalScore
-  const passesTotal = combo.requiredTotalScore
-    ? totalConfidence >= combo.requiredTotalScore
-    : true;
-
-  if (allCorePresent && allSupportValid && passesTotal) {
-    comboScore += combo.score;
-
-    // Track used components to exclude from individual emotion scoring
-    combo.core.forEach((core) => usedCombos.add(core.type.toLowerCase()));
-    combo.support?.forEach((support) => usedCombos.add(support.type.toLowerCase()));
-    logs.push(`Combo: ${combo.name} (${[...combo.core.map(c => c.type), ...(combo.support?.map(s => s.type) ?? [])].join(' + ')})`);
-  }
-}
-    // Skip emotions used in combos
-const individualEmotions = filtered.filter(e => !usedCombos.has(e.label.toLowerCase()));
-for (const emotion of individualEmotions) {
-  const key = emotion.label.toLowerCase();
-  const weight = this.emotionWeights[key] ?? 0;
-  delta += weight;
-  logs.push(`Adding ${key}: ${weight}`);
-} // Add combo score after individual emotions
-  delta += comboScore;
+    delta += comboScore;
     delta = Math.max(-4, Math.min(4, Math.round(delta)));
     affection[botId] = this.clampAffection((affection[botId] ?? 50) + delta);
     this.myInternalState['affection'] = affection;
     this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n");
+
+    // ✅ Final piece: add narratorEmotionLog so renderer can display all emotion tiers
+    this.myInternalState['narratorEmotionLog'] = {
+      speaker: botId,
+      emotions: allEmotions,
+      threshold: 0.2,
+      filtered,
+      comboMatches,
+      usedComboLabels: Array.from(usedCombos)
+    };
+
   } catch (err) {
     logs.push("❌ Emotion classification failed");
     this.myInternalState['affectionLog'] = logs.join("\n");
-  } // Log the emotion breakdown
+  }
+
   return {
     messageState: { affection },
     chatState: null,
     systemMessage: null,
     error: null
   };
-} 
+}
+
   render(): ReactElement {
   const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
   const affectionDisplay = Object.entries(affection)
