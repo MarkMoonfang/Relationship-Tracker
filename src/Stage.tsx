@@ -192,7 +192,7 @@ for (const emotion of individualEmotions) {
 } // Add combo score after individual emotions
   delta += comboScore;
     delta = Math.max(-4, Math.min(4, Math.round(delta)));
-    affection[botId] = this.clampAffection(affection[botId] + delta);
+    affection[botId] = this.clampAffection((affection[botId] ?? 50) + delta);
     this.myInternalState['affection'] = affection;
     this.myInternalState['affectionLog'] = `[Delta for ${botId}: ${delta} | New: ${affection[botId]}]\n` + logs.join("\n");
   } catch (err) {
