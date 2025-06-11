@@ -271,7 +271,7 @@ for (const emotion of individualEmotions) {
               <div key={i}>
                 {e.label}: {(e.confidence * 100).toFixed(1)}%
               </div>
-            ))} // Display filtered emotions above threshold
+            ))} 
           {/* === LEFTOVER / LOW CONFIDENCE === */}
           <h4>🕳️ Low-Confidence Emotions</h4>
           {allEmotions
