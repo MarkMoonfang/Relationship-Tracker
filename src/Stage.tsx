@@ -207,47 +207,85 @@ for (const emotion of individualEmotions) {
   };
 } 
   render(): ReactElement {
-    const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
-const affectionDisplay = Object.entries(affection)
-  .filter(([charId]) => {
-    const found = !!this.charactersMap?.[charId];
-    if (!found) console.warn("⚠️ Unknown botId in affection:", charId);
-    return found;
-  })
-  .map(([charId, score]) => (
-    <p key={charId}>
-      <strong>{this.charactersMap[charId]?.name ?? charId}</strong>: {typeof score === "number" ? score : JSON.stringify(score)}
-    </p>
-  ));
-    const logOutput = this.myInternalState['affectionLog'] ?? null;
-    const narratorEmotionLog = this.myInternalState['narratorEmotionLog'] ?? null;
-    console.log("Affection object:", affection);
-    return (
-      <div className="your-stage-wrapper">
-        <h2>Relationship Tracker</h2>
-        <p>
-          There are {this.myInternalState['numChars']} bot
-          {this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
+  const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
+  const affectionDisplay = Object.entries(affection)
+    .filter(([charId]) => {
+      const found = !!this.charactersMap?.[charId];
+      if (!found) console.warn("⚠️ Unknown botId in affection:", charId);
+      return found;
+    })
+    .map(([charId, score]) => (
+      <p key={charId}>
+        <strong>{this.charactersMap[charId]?.name ?? charId}</strong>: {typeof score === "number" ? score : JSON.stringify(score)}
+      </p>
+    ));
+
+  const logOutput = this.myInternalState['affectionLog'] ?? null;
+  const narratorEmotionLog = this.myInternalState['narratorEmotionLog'] ?? null;
+  const emotionThreshold = narratorEmotionLog?.threshold ?? 0.2;
+
+  const allEmotions = narratorEmotionLog?.emotions ?? [];
+  const filtered = narratorEmotionLog?.filtered ?? [];
+  const comboMatches = narratorEmotionLog?.comboMatches ?? [];
+  const usedComboLabels: Set<string> = new Set(narratorEmotionLog?.usedComboLabels ?? []);
+
+  return (
+    <div className="your-stage-wrapper">
+      <h2>Relationship Tracker</h2>
+      <p>
+        There are {this.myInternalState['numChars']} bot
+        {this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
+      </p>
+
+      {affectionDisplay}
+
+      {this.myInternalState['lastSpeakerIsNarrator'] && (
+        <p style={{ fontStyle: 'italic', color: '#666' }}>
+          Narrator message — relationship values unchanged.
         </p>
-        {affectionDisplay}
-        {this.myInternalState['lastSpeakerIsNarrator'] && (
-          <p style={{ fontStyle: 'italic', color: '#666' }}>
-            Narrator message — relationship values unchanged.
-          </p>
-        )}
-        {narratorEmotionLog && (
-          <div style={{ marginTop: "1em", padding: "0.5em", background: "#f7f7f7", border: "1px solid #ccc" }}>
-            <strong>Narrator Emotional Readout:</strong>
-            <p>Speaker: <code>{narratorEmotionLog.speaker}</code></p>
+      )} // Display affection values for each character
+
+      {narratorEmotionLog && (
+        <div style={{ marginTop: "1em", padding: "0.5em", background: "#f7f7f7", border: "1px solid #ccc" }}>
+          <strong>Narrator Emotional Readout:</strong>
+          <p>Speaker: <code>{narratorEmotionLog.speaker}</code></p>
+
+          {/* === COMBO SECTION === */}
+          <h4>🧩 Emotion Combinations</h4>
+          {comboMatches.length > 0 ? (
             <ul>
-              {narratorEmotionLog.emotions.map((e: { label: string; confidence: number }, i: number) => (
-                <li key={i}>{e.label}: {(e.confidence * 100).toFixed(1)}%</li>
-              ))}
+              {comboMatches.map((combo: any, i: number) => (
+                <li key={i}>
+                  <strong>{combo.name}</strong>: {combo.score} — <em>{combo.description}</em>
+                </li>
+              ))} // Display detected emotion combinations
             </ul>
-          </div>
-        )}
-        {logOutput && <pre>{logOutput}</pre>}
-      </div>
-    );
-  }
+          ) : <p>No combinations detected.</p>}
+
+          {/* === FILTERED SOLO EMOTIONS === */}
+          <h4>🎯 Individual Emotions (above threshold)</h4>
+          {filtered
+            .filter((e: any) => !usedComboLabels.has(e.label.toLowerCase()))
+            .sort((a: any, b: any) => b.confidence - a.confidence)
+            .map((e: any, i: number) => (
+              <div key={i}>
+                {e.label}: {(e.confidence * 100).toFixed(1)}%
+              </div>
+            ))} // Display filtered emotions above threshold
+          {/* === LEFTOVER / LOW CONFIDENCE === */}
+          <h4>🕳️ Low-Confidence Emotions</h4>
+          {allEmotions
+            .filter((e: any) => e.confidence < emotionThreshold)
+            .sort((a: any, b: any) => b.confidence - a.confidence)
+            .map((e: any, i: number) => (
+              <div key={i} style={{ color: "#888" }}>
+                {e.label}: {(e.confidence * 100).toFixed(1)}%
+              </div>
+            ))} // Display low-confidence emotions
+        </div>
+      )} // Display narrator emotion log
+      {logOutput && <pre>{logOutput}</pre>}
+    </div>
+  );
+}
 }
