@@ -564,6 +564,57 @@ export interface ThresholdCombo {
     { type: "confusion", min: 0.3 }
   ],
   description: "Neutral — evaluating, not connecting emotionally."
+},
+{
+  name: "Fixated Mischief",
+  score: 2,
+  core: [
+    { type: "curiosity", min: 0.5 },
+    { type: "approval", min: 0.5 }
+  ],
+  support: [
+    { type: "anticipation", min: 0.2 },
+    { type: "impulsiveness", min: 0.3 }
+  ],
+  description: "A high-energy, impulsive fixation on something desirable—often disarming or childlike. Common in characters seeking both stimulation and validation. Can signal distraction, risk-taking, or playful disobedience."
+},
+{
+  name: "Haunted Pragmatism",
+  score: -1,
+  core: [
+    { type: "sadness", min: 0.6 },
+    { type: "realization", min: 0.5 }
+  ],
+  support: [
+    { type: "annoyance", min: 0.3 },
+    { type: "fear", min: 0.4 }
+  ],
+  description: "Emotionally withdrawn survivalist behavior. Often rooted in trauma. Hypervigilant but calculating, with minimal affect display. Used when a character suppresses grief to maintain control."
+},
+{
+  name: "Combustive Caution",
+  score: -1,
+  core: [
+    { type: "approval", min: 0.6 },
+    { type: "fear", min: 0.6 }
+  ],
+  support: [
+    { type: "realization", min: 0.3 },
+    { type: "annoyance", min: 0.3 }
+  ],
+  description: "The moment before a calculated risk. Burned before, the character balances tension and resolve. Often used when asserting conditional trust under pressure—especially after trauma. Action is ready, but leashed."
+},
+{
+  name: "Innocent Desperation",
+  score: 5,
+  core: [
+    { type: "joy", min: 0.7 },
+    { type: "approval", min: 0.6 }
+  ],
+  support: [
+    { type: "realization", min: 0.3 },
+    { type: "annoyance", min: 0.3 }
+  ],
+  description: "A child's emotional flood—eager to be believed, desperate to be taken seriously. Often follows suppressed fear or misunderstanding. Exhibits hope wrapped in anxiety. Useful for moments of fragile enthusiasm."
 }
-
 ];
