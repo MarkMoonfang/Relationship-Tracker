@@ -243,7 +243,7 @@ for (const emotion of individualEmotions) {
         <p style={{ fontStyle: 'italic', color: '#666' }}>
           Narrator message — relationship values unchanged.
         </p>
-      )} // Display affection values for each character
+      )}
 
       {narratorEmotionLog && (
         <div style={{ marginTop: "1em", padding: "0.5em", background: "#f7f7f7", border: "1px solid #ccc" }}>
@@ -258,7 +258,7 @@ for (const emotion of individualEmotions) {
                 <li key={i}>
                   <strong>{combo.name}</strong>: {combo.score} — <em>{combo.description}</em>
                 </li>
-              ))} // Display detected emotion combinations
+              ))}
             </ul>
           ) : <p>No combinations detected.</p>}
 
@@ -281,9 +281,9 @@ for (const emotion of individualEmotions) {
               <div key={i} style={{ color: "#888" }}>
                 {e.label}: {(e.confidence * 100).toFixed(1)}%
               </div>
-            ))} // Display low-confidence emotions
+            ))} 
         </div>
-      )} // Display narrator emotion log
+      )} 
       {logOutput && <pre>{logOutput}</pre>}
     </div>
   );
