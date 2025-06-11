@@ -234,6 +234,15 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
   render(): ReactElement {
   const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
+  const narratorEmotionLog = this.myInternalState['narratorEmotionLog'] ?? null;
+  const logOutput = this.myInternalState['affectionLog'] ?? null;
+
+  const emotionThreshold = narratorEmotionLog?.threshold ?? 0.2;
+  const filtered = narratorEmotionLog?.filtered ?? [];
+  const allEmotions = narratorEmotionLog?.emotions ?? [];
+  const comboMatches = narratorEmotionLog?.comboMatches ?? [];
+  const usedComboLabels: Set<string> = new Set(narratorEmotionLog?.usedComboLabels ?? []);
+
   const affectionDisplay = Object.entries(affection)
     .filter(([charId]) => {
       const found = !!this.charactersMap?.[charId];
@@ -246,22 +255,9 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       </p>
     ));
 
-  const logOutput = this.myInternalState['affectionLog'] ?? null;
-  const narratorEmotionLog = this.myInternalState['narratorEmotionLog'] ?? null;
-  const emotionThreshold = narratorEmotionLog?.threshold ?? 0.2;
-
-  const allEmotions = narratorEmotionLog?.emotions ?? [];
-  const filtered = narratorEmotionLog?.filtered ?? [];
-  const comboMatches = narratorEmotionLog?.comboMatches ?? [];
-  const usedComboLabels: Set<string> = new Set(narratorEmotionLog?.usedComboLabels ?? []);
-
   return (
     <div className="your-stage-wrapper">
       <h2>Relationship Tracker</h2>
-      <p>
-        There are {this.myInternalState['numChars']} bot
-        {this.myInternalState['numChars'] !== 1 ? 's' : ''} present.
-      </p>
 
       {affectionDisplay}
 
@@ -272,45 +268,72 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       )}
 
       {narratorEmotionLog && (
-        <div style={{ marginTop: "1em", padding: "0.5em", background: "#f7f7f7", border: "1px solid #ccc" }}>
+        <div style={{ marginTop: "1em", padding: "0.5em", background: "#f7f7f7", border: "1px solid #ccc", fontSize: "0.9em" }}>
           <strong>Narrator Emotional Readout:</strong>
           <p>Speaker: <code>{narratorEmotionLog.speaker}</code></p>
 
-          {/* === COMBO SECTION === */}
-          <h4>🧩 Emotion Combinations</h4>
-          {comboMatches.length > 0 ? (
-            <ul>
-              {comboMatches.map((combo: any, i: number) => (
-                <li key={i}>
-                  <strong>{combo.name}</strong>: {combo.score} — <em>{combo.description}</em>
-                </li>
-              ))}
-            </ul>
-          ) : <p>No combinations detected.</p>}
+          {/* Emotion Combinations */}
+          <div style={{ marginTop: "0.5em" }}>
+            <strong>🧩 Emotion Combinations</strong>
+            {comboMatches.length > 0 ? (
+              <ul>
+                {comboMatches.map((combo: { name: string; score: number; description?: string }, i: number) => (
+                  <li key={i}>
+                    {combo.name} ({combo.score > 0 ? `+${combo.score}` : combo.score})
+                    {combo.description ? ` — ${combo.description}` : ""}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p style={{ fontStyle: "italic", color: "#777" }}>No combinations detected.</p>
+            )}
+          </div>
 
-          {/* === FILTERED SOLO EMOTIONS === */}
-          <h4>🎯 Individual Emotions (above threshold)</h4>
-          {filtered
-            .filter((e: any) => !usedComboLabels.has(e.label.toLowerCase()))
-            .sort((a: any, b: any) => b.confidence - a.confidence)
-            .map((e: any, i: number) => (
-              <div key={i}>
-                {e.label}: {(e.confidence * 100).toFixed(1)}%
-              </div>
-            ))} 
-          {/* === LEFTOVER / LOW CONFIDENCE === */}
-          <h4>🕳️ Low-Confidence Emotions</h4>
-          {allEmotions
-            .filter((e: any) => e.confidence < emotionThreshold)
-            .sort((a: any, b: any) => b.confidence - a.confidence)
-            .map((e: any, i: number) => (
-              <div key={i} style={{ color: "#888" }}>
-                {e.label}: {(e.confidence * 100).toFixed(1)}%
-              </div>
-            ))} 
+          {/* Individual Emotions Above Threshold */}
+          {filtered.length > 0 && (
+            <div style={{ marginTop: "0.5em" }}>
+              <strong>🎯 Individual Emotions (above threshold)</strong>
+              <ul>
+                {filtered.map((emotion: { label: string; confidence: number }, i: number) => (
+                  <li key={i}>
+                    {emotion.label}: {(emotion.confidence * 100).toFixed(1)}%
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Low Confidence Emotions */}
+          <div style={{ marginTop: "0.5em" }}>
+            <strong>🕳️ Low-Confidence Emotions</strong>
+            <div style={{
+              fontSize: "0.85em",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "0.6em",
+              lineHeight: "1.3em"
+            }}>
+              {allEmotions
+                .filter((emotion: { label: string; confidence: number }) =>
+                  emotion.confidence < emotionThreshold &&
+                  !filtered.some((f: { label: string }) => f.label === emotion.label) &&
+                  !usedComboLabels.has(emotion.label.toLowerCase())
+                )
+                .map((emotion: { label: string; confidence: number }, i: number) => (
+                  <div key={i}>
+                    {emotion.label}: {(emotion.confidence * 100).toFixed(1)}%
+                  </div>
+                ))}
+            </div>
+          </div>
         </div>
-      )} 
-      {logOutput && <pre>{logOutput}</pre>}
+      )}
+
+      {logOutput && (
+        <pre style={{ marginTop: "1em", whiteSpace: "pre-wrap", fontSize: "0.85em" }}>
+          {logOutput}
+        </pre>
+      )}
     </div>
   );
 }
