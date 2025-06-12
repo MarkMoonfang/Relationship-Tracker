@@ -47,6 +47,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       console.error("Failed to load emotion client", e);
     }
     this.myInternalState['affection'] = {};
+    this.myInternalState['showNarratorMenu'] = true; // 👈 Trigger menu on first stage load
     return {
       success: true,
       error: null,
@@ -108,11 +109,11 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
     (botMessage as any)?.id ??
     (botMessage as any)?.name ??
     "unknown";
-  const isNarrator = metadata.role === "narrator" || metadata.role === "system";
+  const narratorId = this.myInternalState['narratorId'];
+  const isNarrator = narratorId && botId === narratorId;
   const isSystemMessage = (botMessage as any)?.isSystem === true;
   const affection: { [botId: string]: number } = this.myInternalState['affection'] ?? {};
   const logs: string[] = [];
-  this.myInternalState['lastSpeakerIsNarrator'] = isNarrator;
   console.warn("🧠 DEBUG botId:", botId);
   console.warn("📦 DEBUG metadata:", metadata);
 
@@ -135,7 +136,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       }))
       .filter((e: { label: string; confidence: number }) => !isNaN(e.confidence));
 
-    const filtered = allEmotions.filter(e => e.confidence >= 0.01 && e.label !== "neutral");
+    const filtered = allEmotions.filter(e => e.confidence >= 0.0015 && e.label !== "neutral");
     const usedCombos = new Set<string>();
     const comboMatches: { name: string; score: number; description?: string }[] = [];
     let comboScore = 0;
@@ -211,7 +212,7 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
 
     // ✅ Final piece: add narratorEmotionLog so renderer can display all emotion tiers
     this.myInternalState['narratorEmotionLog'] = {
-      speaker: botId,
+      speaker: this.myInternalState['narratorId'] ?? botId,
       emotions: allEmotions,
       threshold: 0.2,
       filtered,
@@ -260,12 +261,67 @@ export class Stage extends StageBase<InitStateType, ChatStateType, MessageStateT
       <h2>Relationship Tracker</h2>
 
       {affectionDisplay}
-
-      {this.myInternalState['lastSpeakerIsNarrator'] && (
-        <p style={{ fontStyle: 'italic', color: '#666' }}>
-          Narrator message — relationship values unchanged.
-        </p>
+      {this.myInternalState['showNarratorMenu'] && (
+       <div style={{
+        padding: '1em', border: '2px dashed #ccc', background: '#fff7e6', marginBottom: '1em'
+      }}> 
+       <strong>👤 Please identify the narrator character.</strong>
+       <p>This helps ensure emotional data isn't misattributed.</p>
+       <button onClick={() => {
+         this.myInternalState['showNarratorMenu'] = false;
+         // Optionally allow character selection
+       }}>Dismiss</button>
+     </div>
       )}
+      {this.myInternalState['showNarratorMenu'] && (
+  <div style={{
+    padding: '1em',
+    marginBottom: '1em',
+    border: '2px dashed #ccc',
+    background: '#fff7e6',
+    borderRadius: '6px',
+    maxWidth: '600px'
+  }}>
+    <strong>🎙️ Please identify the narrator character:</strong>
+    <p>This helps avoid misattributing emotions. You can change this later if needed.</p>
+
+    <div style={{ margin: '0.5em 0' }}>
+      {Object.entries(this.charactersMap).map(([charId, char]) => (
+        <div key={charId} style={{ marginBottom: '0.4em' }}>
+          <label>
+            <input
+              type="radio"
+              name="narrator"
+              value={charId}
+              onChange={() => {
+                this.myInternalState['narratorId'] = charId;
+                this.myInternalState['showNarratorMenu'] = false;
+              }}
+              style={{ marginRight: '0.5em' }}
+            />
+            {char.name}
+          </label>
+        </div>
+      ))}
+    </div>
+
+    <button
+      onClick={() => {
+        this.myInternalState['showNarratorMenu'] = false;
+      }}
+      style={{
+        marginTop: '0.5em',
+        background: '#eee',
+        border: '1px solid #999',
+        padding: '0.3em 0.6em',
+        cursor: 'pointer'
+      }}
+    >
+      Dismiss without selecting
+    </button>
+  </div>
+)}
+
 
       {narratorEmotionLog && (
         <div style={{ marginTop: "1em", padding: "0.5em", background: "#f7f7f7", border: "1px solid #ccc", fontSize: "0.9em" }}>
